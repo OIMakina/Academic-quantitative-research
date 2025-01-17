@@ -1,0 +1,454 @@
+---
+title: 'Adolescents: health and family (wave 4)'
+author: "Olga Lavrinenko"
+date: "2022-12-12"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+```{r include = T, results = 'hide'}
+library(foreign)
+library(descr)
+```
+
+```{r}
+#setwd ("D:/Data Analytics For Politics And Society/Social and Political Attitudes (1-2 modules)/Project 2")
+database <- read.spss ("alcohol_vocschool.sav",to.data.frame = T, use.value.labels = T)
+```
+
+# Pre-task: 
+
+## Before you begin, construct the distributions of the variables you are interested in and see if there are any unexpected answers that go beyond the categories of numbers indicated in the questionnaire.
+
+```{r}
+database$gender <- 
+  ifelse(database$gender == "0", "Girl",
+  ifelse(database$gender == "1", "Boy", NA))
+```
+
+## The distributions of the variables
+
+The distribution of the values of the variables we are interested in shows the absence of unexpected answers that could go beyond the categories of numbers indicated in the questionnaire.
+
+1) For variables that illustrate the behavior of respondents (how often they drink and get drunk) 7 categories are provided: 
+    - 0) Never or almost never, 
+    - 1) 1 or 2 times in 6 months, 
+    - 2) 1 time per month or less, 
+    - 3) 2 - 3 times a month, 
+    - 4) 1 - 2 times a week, 
+    - 5) 3 to 5 times a week, 
+    - 6) Every day or almost every day.
+
+2) There are two categories for variable "gender": 
+    - 0 - Girl, 
+    - 1 - Boy
+
+3) For variables that illustrate respondents' attitudes 5 categories are provided: 
+    - 1 - Disagree, 
+    - 2 - Rather disagree, 
+    - 3 - Neither one nor the other, 
+    - 4 - Rather agree, 
+    - 5 - Agree.
+   
+
+```{r}
+table(database$q32) #frequency_drink
+table(database$q33) #frequency_get_drunk
+table(database$gender) #gender
+table(database$q25) #unpleasant_situation
+table(database$q26) #bad_relationship
+table(database$q29) #shame
+```
+## Renaming variables
+
+Let's change names of variables that will be used in this project.
+
+```{r}
+database$frequency_drink <- database$q32 
+database$frequency_get_drunk <- database$q33
+database$unpleasant_situation <- database$q25
+database$bad_relationship <- database$q26 
+database$shame <- database$q29
+```
+
+# Task 1. Construct a distribution of responses (in %) how often teenagers drink and get drunk.
+
+## How often teenagers drink
+
+1) the majority of respondents (52 %) drink **no more than 2 times in a half-year**:
+
+   - 29.9 % drink never or almost never, 
+   - 22.1 % drink 1 or 2 times in 6 months
+   
+2) also a significant percentage of respondents (34,6%) drink **no more than 3 times a month**:
+  
+   - 15.3 % drink 1 time per month or less
+   - 19.3 % drink 2 - 3 times a month
+
+3) and just over 13% drink **at least once a week**:
+
+   - 8.9 % drink 1 - 2 times a week
+   - 2.3 % drink 3 to 5 times a week
+   - 2.0 % drink every day or almost every day
+
+```{r}
+prop_frequency_drink <- round((prop.table(table(database$q32)) * 100), 3)
+prop_frequency_drink
+
+bp_1 <- barplot(prop_frequency_drink, 
+        main = "Relative frequency (%)",
+        xlab = "How often have you been drinking (i.e. drinking alcoholic beverages)
+        in the PAST SIX MONTHS?",
+        xaxt = "n",
+        ylim = c(0, 30),
+        col  = c("#4DAC81", "#6BC889", "#A5FFAC", "#FFF0F5", "#FFB6C1", "#FF8EAA", "#CD6090"))
+legend(x = 5.5, 
+       y = 30,
+       c("Never or almost never", "1 or 2 times in 6 months", 
+         "1 time per month or less", "2 - 3 times a month", "1 - 2 times a week", 
+         "3 to 5 times a week", "Every day or almost every day"),
+       cex = 0.7, 
+      fill = c("#4DAC81", "#6BC889", "#A5FFAC", "#FFF0F5", "#FFB6C1", "#FF8EAA", "#CD6090"))
+text(bp_1, -0.4, round(prop_frequency_drink, 1), cex = 0.75, col = "black", pos = 3)
+```
+
+## How often teenagers have get drunk
+
+1) the majority of respondents (67 %) get drunk **no more than 2 times in a half-year**:
+
+   - 29.9 % never get drunk or almost never, 
+   - 22.1 % get drunk 1 or 2 times in 6 months
+   
+2) slightly more than a quarter of respondents (26 %) get drunk **no more than 3 times a month**:
+  
+   - 13.9 % get drunk 1 time per month or less
+   - 12.0 % get drunk 2 - 3 times a month
+
+3) and just over 7% get drunk **at least once a week**:
+
+   - 5.4 % get drunk 1 - 2 times a week
+   - 0.9 % get drunk 3 to 5 times a week
+   - 1.0 % get drunk every day or almost every day
+
+```{r}
+prop_frequency_get_drunk <- round((prop.table(table(database$q33)) * 100), 3)
+prop_frequency_get_drunk
+
+
+bp_2 <- barplot(prop_frequency_get_drunk, 
+        main = "Relative frequency (%)",
+        xlab = "In the PAST SIX MONTHS, how often have you had 
+        FOUR OR MORE alcoholic beverages AT A TIME?, %",
+        xaxt = "n",
+        ylim = c(0, 50),
+        col  = c("#4DAC81", "#6BC889", "#A5FFAC", "#FFF0F5", "#FFB6C1", "#FF8EAA", "#CD6090"))
+legend(x = 4.8, 
+       y = 50,
+       c("Never or almost never", "1 or 2 times in 6 months", 
+         "1 time per month or less", "2 - 3 times a month", "1 - 2 times a week", 
+         "3 to 5 times a week", "Every day or almost every day"),
+       cex  = 0.8, 
+       fill = c("#4DAC81", "#6BC889", "#A5FFAC", "#FFF0F5", "#FFB6C1", "#FF8EAA", "#CD6090"))
+text(bp_2, -0.4, round(prop_frequency_get_drunk, 1), cex = 0.75, col = "black", pos = 3)
+```
+
+# Task 2. Compare both questions by gender.
+
+## Gender differences: how often teenagers drink
+
+1) the percentage of those who drink **no more than 2 times in a half-year** among boys is a bit higher compared to girls:
+
+   - 54.2 % of boys drink never / almost never / 1 or 2 times in 6 months
+   - 47.8 % of girls drink never / almost never / 1 or 2 times in 6 months
+   
+2) wherein the percentage of those who drink **no more than 3 times a month** among girls is higher compared to boys:
+  
+   - 42.0 % of girls drink 2 - 3 times a month /1 time per month or less 
+   - 31.1 % of boys drink 2 - 3 times a month /1 time per month or less
+
+3) and the percentage of those who drink **at least once a week** among boys is higher compared to girls:
+
+   - 14.6 % of boys drink 1 - 2 times a week / 3 to 5 times a week / every day or almost every day
+   - 10.2 % of girls drink 1 - 2 times a week / 3 to 5 times a week / every day or almost every day
+
+```{r}
+prop_frequency_drink_Gender <- 
+  round((prop.table(table(database$gender, database$q32), 1) * 100), 3)
+prop_frequency_drink_Gender
+
+par(mar = c(3, 2, 4, 0.1))
+bp_3 <- barplot(prop_frequency_drink_Gender, 
+        beside = T,
+        main = "Relative frequency (%)\n
+        How often have you been drinking (i.e. drinking alcoholic beverages) 
+        in the PAST SIX MONTHS?",
+        cex.main = 1,
+        ylim = c(0, 35),
+        col = c("#7EAAC5","#FFC0D4"),
+        names.arg = c("Never or \nalmost never", "1 or 2 times \nin 6 months", 
+         "1 time per month \nor less", "2 - 3 times \na month", "1 - 2 times \na week", 
+         "3 to 5 times \na week", "Every day or \nalmost every day"),
+        cex.names = 0.7)
+legend(x = 19, 
+       y = 30,
+       c("Boy", "Girl"),
+       cex = 0.8,
+       fill = c("#7EAAC5","#FFC0D4"))
+
+text(bp_3, 2, round(prop_frequency_drink_Gender, 1), cex = 0.75, col = "black", pos=3)
+```
+
+## Gender differences: how often teenagers have get drunk
+
+1) the percentage of those who get drunk **no more than 2 times in a half-year** among boys is approximately the same for boys and girls:
+  
+   - 67.7 % of girls get drunk never / almost never / 1 or 2 times in 6 months
+   - 66.5 % of boys get drunk never / almost never / 1 or 2 times in 6 months
+   
+2) also, the percentage of those who get drunk **no more than 3 times a month** is approximately the same for boys and girls
+  
+   - 26.4 % of girls get drunk 2 - 3 times a month /1 time per month or less 
+   - 25.6 % of boys get drunk 2 - 3 times a month /1 time per month or less
+
+3) and over again, the percentage of those who get drunk **at least once a week** is approximately the same for boys and girls:
+
+   - 8 % of boys get drunk 1 - 2 times a week / 3 to 5 times a week / every day or almost every day
+   - 5.9 % of girls get drunk 1 - 2 times a week / 3 to 5 times a week / every day or almost every day
+   
+So, there is no significant gender differences in the question of how often teenagers have get drunk.
+
+```{r}
+prop_frequency_get_drunk_Gender <- 
+  round((prop.table(table(database$gender, database$q33), 1) * 100), 3)
+prop_frequency_get_drunk_Gender
+
+par(mar = c(3, 2, 5, 0.1))
+bp_4 <- barplot(prop_frequency_get_drunk_Gender, 
+        beside = T,
+        main = "Relative frequency (%)\n
+        In the PAST SIX MONTHS, how often have you had 
+        FOUR OR MORE alcoholic beverages AT A TIME?",
+        cex.main = 1,
+        ylim = c(0, 50),
+        col = c("#7EAAC5", "#FFC0D4"),
+        names.arg = c("Never or \nalmost never", "1 or 2 times \nin 6 months", 
+         "1 time per month \nor less", "2 - 3 times \na month", "1 - 2 times \na week", 
+         "3 to 5 times \na week", "Every day or \nalmost every day"),
+        cex.names = 0.7)
+legend(x = 18, 
+       y = 47,
+       c("Boy", "Girl"),
+       cex = 0.8,
+       fill = c("#7EAAC5", "#FFC0D4"))
+text(bp_4, 1, round(prop_frequency_get_drunk_Gender, 1), cex = 0.75, col = "black", pos = 3)
+```
+
+# Task 3. Show cross-tabulation of alcohol-specific attitudes and the frequency of drinking girls and boys.
+
+## Renaming variables
+
+First, let's rename the variables and their values according to the questionnaire for clarity and more convenient interpretation. In addition, we will reduce the number of values for variables that reflect the attitudes. We will combine the categories Agree/Rather Agree into one category and Disagree/Rather Disagree into another. And also we will combine the categories of frequency of drinking and getting drunk.
+
+```{r}
+database$unpleasant_situation <- 
+  ifelse(database$unpleasant_situation =="1", "Disagree",
+  ifelse(database$unpleasant_situation =="2", "Disagree", 
+  ifelse(database$unpleasant_situation =="3", "Neither agree nor disagree",
+  ifelse(database$unpleasant_situation =="4", "Agree",  
+  ifelse(database$unpleasant_situation =="5", "Agree", NA)))))
+
+database$bad_relationship <- 
+  ifelse(database$bad_relationship =="1", "Disagree",
+  ifelse(database$bad_relationship =="2", "Disagree", 
+  ifelse(database$bad_relationship =="3", "Neither agree nor disagree",
+  ifelse(database$bad_relationship =="4", "Agree",  
+  ifelse(database$bad_relationship =="5", "Agree", NA)))))
+
+database$shame <- 
+  ifelse(database$shame =="1", "Disagree",
+  ifelse(database$shame =="2", "Disagree", 
+  ifelse(database$shame =="3", "Neither agree nor disagree",
+  ifelse(database$shame =="4", "Agree",  
+  ifelse(database$shame =="5", "Agree", NA)))))
+
+database$frequency_drink <- 
+  ifelse(database$frequency_drink == "0", "No more than 2 times in a half-year",
+  ifelse(database$frequency_drink == "1", "No more than 2 times in a half-year",
+  ifelse(database$frequency_drink == "2", "No more than 3 times a month",
+  ifelse(database$frequency_drink == "3", "No more than 3 times a month",
+  ifelse(database$frequency_drink == "4", "At least once a week",
+  ifelse(database$frequency_drink == "5", "At least once a week",
+  ifelse(database$frequency_drink == "6", "At least once a week", NA)))))))
+
+database$frequency_get_drunk <- 
+  ifelse(database$frequency_get_drunk == "0", "No more than 2 times in a half-year",
+  ifelse(database$frequency_get_drunk == "1", "No more than 2 times in a half-year",
+  ifelse(database$frequency_get_drunk == "2", "No more than 3 times a month",
+  ifelse(database$frequency_get_drunk == "3", "No more than 3 times a month",
+  ifelse(database$frequency_get_drunk == "4", "At least once a week",
+  ifelse(database$frequency_get_drunk == "5", "At least once a week",
+  ifelse(database$frequency_get_drunk == "6", "At least once a week", NA)))))))
+```
+
+
+To determine the association between variables we should calculate the **chi-square** and consider the values that we get.
+
+## **Frequency drink and Gender**
+
+1) Chi-square: p-value is significant (p = 0.000319), therefore we can point out to the association between gender and how often teenagers drink
+
+2) Std Residuals: girls are likely to drink no more than 3 times a month (std. res > |1.96|, std. res = 2.495), while boys are not likely to drink no more than 3 times a month (std. res = -1.836). Other standardized residuals are not statistically significant.
+
+```{r, warning = F}
+CrossTable(database$frequency_drink, database$gender,
+           chisq = T, expected = T, sresid = T, 
+           prop.r = T, prop.c = F, prop.t = F, prop.chisq = F,
+           dnn = c("How often do you drink?", "Gender"))
+```
+
+## **Frequency get drunk and Gender**
+
+Chi-square: p-value is not significant (p = 0.399), therefore we can not point out to the association between gender and how often teenagers get drunk.
+
+```{r, warning = F}
+CrossTable(database$frequency_get_drunk, database$gender, 
+           chisq = T, expected = T, sresid = T, 
+           prop.r = T, prop.c = F, prop.t = F, prop.chisq = F,
+           dnn = c("How often have you get drink?", "Gender"))
+```
+
+## **Frequency drink and Unpleasant situation**
+
+1) Chi-square: p-value is significant (p <2e-16), therefore we can point out to the association between frequency of drinking and such attitude as "alcohol can get me into trouble".
+
+2) Std Residuals: respondents, who drink very rarely - no more than 2 times in a half-year, are likely (st.res = 4.935) to agree with the statement **"alcohol can get me into trouble"**, while those who drink at least once a week (st.res = 4.325) or several times a month (st.res = 2.889) are likely to disagree with the statement.
+
+```{r, warning = F}
+CrossTable(database$frequency_drink, database$bad_relationship,
+           chisq = T, expected = T, sresid = T, 
+           prop.r = T, prop.c = F, prop.t = F, prop.chisq = F,
+           dnn = c("How often do you drink? ", 
+                   "Alcohol can get me into trouble"))
+```
+
+## **Frequency get drunk and Unpleasant situation**
+
+1) Chi-square: p-value is significant (p <2e-16), therefore we can point out to the association between frequency of getting drunk and such attitude as "alcohol can get me into trouble".
+
+2) Std Residuals: respondents, who get drunk very rarely - no more than 2 times in a half-year, are likely (st.res = 3.811) to agree with the statement **"alcohol can get me into trouble"**, while those who get drunk at least once a week (st.res = 4.009) or several times a month (st.res = 4.391) are likely to disagree with this statement.
+
+```{r, warning = F}
+CrossTable(database$frequency_get_drunk, database$bad_relationship,
+           chisq = T, expected = T, sresid = T, 
+           prop.r = T, prop.c = F, prop.t = F, prop.chisq = F,
+           dnn = c("How often have you get drunk? ", 
+                   "Alcohol can get me into trouble"))
+```
+
+## **Frequency drink and Bad relationship**
+
+1) Chi-square: p-value is significant (p <2e-16), therefore we can point out to the association between frequency of drinking and such attitude as "alcohol can ruin my relationship with family and friends".
+
+2) Std Residuals: respondents, who drink very rarely - no more than 2 times in a half-year, are likely (st.res = 4.935) to agree with the statement **"alcohol can ruin my relationship with family and friends"**, while those who drink at least once a week (st.res = 4.325) or several times a month (st.res = 2.889) are likely to disagree with this statement.
+
+```{r, warning = F}
+CrossTable(database$frequency_drink, database$bad_relationship,
+           chisq = T, expected = T, sresid = T, 
+           prop.r = T, prop.c = F, prop.t = F, prop.chisq = F,
+           dnn = c("How often do you drink? ", 
+                   "Alcohol can ruin my relationship with family and friends"))
+```
+
+## **Frequency get drunk and Bad relationship**
+
+1) Chi-square: p-value is significant (p <2e-16), therefore we can point out to the association between frequency of getting drunk and such attitude as "alcohol can ruin my relationship with family and friends".
+
+2) Std Residuals: respondents, who get drunk very rarely - no more than 2 times in a half-year, are likely (st.res = 3.811) to agree with the statement **"alcohol can ruin my relationship with family and friends"**, while those who get drunk at least once a week (st.res = 4.009) or several times a month (st.res = 4.391) are likely to disagree with this statement.
+
+```{r, warning = F}
+CrossTable(database$frequency_get_drunk, database$bad_relationship,
+           chisq = T, expected = T, sresid = T, 
+           prop.r = T, prop.c = F, prop.t = F, prop.chisq = F,
+           dnn = c("How often have you get drunk? ", 
+                   "Alcohol can ruin my relationship with family and friends"))
+```
+
+
+## **Frequency drink and Shame**
+
+1) Chi-square: p-value is significant (p <2e-16), therefore we can point out to the association between frequency of drinking and such attitude as "I can be ashamed because of alcohol".
+
+2) Std Residuals: respondents, who drink very rarely - no more than 2 times in a half-year, are likely (st.res = 7.251) to agree with the statement **"I can be ashamed because of alcohol"**, while those who drink at least once a week (st.res = 5.088) or several times a month (st.res = 4.881) are likely to disagree with this statement.
+
+```{r, warning = F}
+CrossTable(database$frequency_drink, database$shame,
+           chisq = T, expected = T, sresid = T, 
+           prop.r = T, prop.c = F, prop.t = F, prop.chisq = F,
+           dnn = c("How often do you drink? ", 
+                   "I can be ashamed because of alcohol"))
+```
+
+## **Frequency get drunk and Shame**
+
+1) Chi-square: p-value is significant (p <2e-16), therefore we can point out to the association between frequency of getting drunk and such attitude as "I can be ashamed because of alcohol".
+
+2) Std Residuals: respondents, who get drunk very rarely - no more than 2 times in a half-year, are likely (st.res = 5.004) to agree with the statement **"I can be ashamed because of alcohol"**, while those who get drunk at least once a week (st.res = 4.145) or several times a month (st.res = 5.286) are likely to disagree with this statement.
+
+```{r, warning = F}
+CrossTable(database$frequency_get_drunk, database$shame,
+           chisq = T, expected = T, sresid = T, 
+           prop.r = T, prop.c = F, prop.t = F, prop.chisq = F,
+           dnn = c("How often have you get drunk? ", 
+                   "I can be ashamed because of alcohol"))
+```
+
+
+## **Unpleasant situation and Gender**
+
+Chi-square: p-value is not significant (p = 0.524), therefore we can not point out to the association between gender and such attitude as "alcohol can get me into trouble".
+
+```{r, warning = F}
+CrossTable(database$unpleasant_situation, database$gender,
+           chisq = T, expected = T, sresid = T, 
+           prop.r = T, prop.c = F, prop.t = F, prop.chisq = F,
+           dnn = c("Alcohol can get me into trouble", "Gender"))
+
+```
+
+## **Bad relationship and Gender**
+
+Chi-square: p-value is not significant (p = 0.676), therefore we can not point out to the association between gender and such attitude as "alcohol can ruin my relationship with family and friends".
+
+```{r, warning = F}
+CrossTable(database$bad_relationship, database$gender,
+           chisq = T, expected = T, sresid = T, 
+           prop.r = T, prop.c = F, prop.t = F, prop.chisq = F,
+           dnn = c("Alcohol can ruin my relationship with family and friends", "Gender"))
+```
+
+
+## **Shame and Gender**
+
+Chi-square: p-value is not significant (p = 0.856), therefore we can not point out to the association between gender and such attitude as "I can be ashamed because of alcohol".
+
+```{r, warning = F}
+CrossTable(database$shame, database$gender,
+           chisq = T, expected = T, sresid = T, 
+           prop.r = T, prop.c = F, prop.t = F, prop.chisq = F,
+           dnn = c("I can be ashamed because of alcohol", "Gender"))
+```
+
+
+# Task 4. Explain this distribution.
+
+We were able to identify associations between teenagers behavior (how often they drink and get drunk) and their attitudes related to the social consequences of drinking alcohol. Adolescents who drink rarely tend to point out the negative consequences of drinking alcohol such as destruction of relationships with family and friends, getting into an unpleasant situation, the risk of shame. At the same time, those who drink several times a month or more often, are not likely to point out the negative social consequences of alcohol.
+
+However, we found no association between gender and negative attitudes towards alcohol, nor between gender and frequency of getting drunk.
+
+Thus, based on the analysis, we can not conclude whether attitudes determine the behavior of a teenager in relation to alcohol, or maybe the negative experience of drinking alcohol forms such negative social attitudes. However, it can be argued that there is an association between behavior and attitudes about social consequences of drinking.
