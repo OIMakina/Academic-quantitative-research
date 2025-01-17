@@ -1,0 +1,1123 @@
+---
+title: 'WVS: Happiness in Bolivia'
+author: "Olga Lavrinenko"
+date: "2023-03-11"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r include = T, results = 'hide', warning = F, message = F}
+library(car)
+library(dplyr)
+library(ggplot2)
+library(gplots)
+library(ggpubr)
+library(lm.beta)
+library(QuantPsyc)
+library(readr)
+library(sjPlot)
+library(tidyverse)
+library(haven)
+```
+
+# What has been fixed (11/03/2023):
+- Formulation of the research question: "are more significant" - "have stronger effect".
+- Saturation of categories (some categories that are close in meaning were combined, some predictors (family importance, religion status) were removed due to the fact that categories even after coding had very few observations)
+- The argument geom_smooth(method = "lm") was removed and a non-linear relationship was found in two cases (age and influence on life).
+- The interaction effect model was changed, because after recoding the previous predictor no longer gave a significant interaction effect.
+
+# Introduction
+
+LCSR Laboratory Head and professor of sociology Panarin Eduard Dmitrievich (HSE - Saint-Petersburg) in one of his lectures pointed out that the **relatively poor countries of Latin America are one of the happiest regions in the world** (Eduard Ponarin: "In terms of happiness, we have passed the beginning of the 80s", 2020. URL: https://yeltsin.ru/news/eduard-ponarin-po-pokazatelyam-schastya-my-pereshli-nachalo-80-h/). The reason for this is non-material factors of happiness such as close social ties, strong large families, high religiosity, and so on.
+
+This study examines the factors that affect the level of happiness in **Bolivia**. Bolivia was taken for the study as it is one of the poorest countries in the region (South America) in accordance with the IMF assessment (Top 12 Richest Countries in South America (by GDP per capita 2020 - World Bank, PPP INT $. URL: https://worldpopulationreview.com/country-rankings/richest-countries-in-south-america). It is also not in the top of the richest countries in Latin America in general (Report for Selected Countries and Subjects, 2019). This provides an opportunity to study the role of non-material factors of happiness in a country that is not the richest.
+
+**Research Question** is whether non-material factors have stronger effect on happiness in Bolivia than material ones?
+
+# Data description
+
+The Bolivia WVS database dates back to 2017 and includes 2067 observations across 394 variables.
+
+```{r}
+#setwd("D:/Data Analytics For Politics And Society/Data analysis (2-3 modules)/Project 1")
+WVS_Bolivia <- read_stata('WVS_Wave_7_Bolivia_Stata_v5.0.dta')
+dim(WVS_Bolivia)
+```
+
+# Hypotheses
+
+  1) The **income** factor is not statistically significant in determining the level of happiness in Bolivia.
+  2) The factor of **financial situation** is also not statistically significant in determining the level of happiness in Bolivia.
+  3) Respondents who indicate the **importance of family** in their lives are happier than those for whom family is not of particular importance.
+  4) Respondents who do not **trust family** are less happy than those who trust.
+  5) Respondents who indicate the **importance of friends** in their lives are happier than those for whom friendship is not of particular importance.
+  6) Respondents who indicate the **importance of religion** in their lives are happier than those for whom religion is not of particular importance.
+  7) Respondents whose **marital status** is "divorced" are less happy than those who are married.
+
+
+# Analysis with the technical interpretation of the results
+
+# I. Preparation:
+
+## 1. Creating a numeric variable “happiness” by combining variables "happiness" (How happy are you?) and "satisfaction" (How satisfied with your life are you?) into one variable.
+
+```{r}
+# replacing negative values with missing ones
+table(WVS_Bolivia$Q46)
+WVS_Bolivia$happiness_1 <- ifelse(WVS_Bolivia$Q46<0, NA, WVS_Bolivia$Q46)    
+table(WVS_Bolivia$happiness_1, WVS_Bolivia$Q46)
+
+# replacing negative values with missing ones
+table(WVS_Bolivia$Q49)
+WVS_Bolivia$lifesat_1 <- ifelse(WVS_Bolivia$Q49<0, NA, WVS_Bolivia$Q49)
+table(WVS_Bolivia$lifesat_1, WVS_Bolivia$Q49)
+
+# changing the correspondence of numbers to categories of happiness: 
+# 1 is "Not at all happy", 4 - "Very happy"
+WVS_Bolivia$happiness_2 <- (WVS_Bolivia$happiness_1*(-1)+5) 
+table(WVS_Bolivia$happiness_2)
+
+# to combine variables let's change the range of values from 1 to 4, instead of from 1 to 10
+WVS_Bolivia$lifesat_2 <- WVS_Bolivia$lifesat_1/2.5
+table(WVS_Bolivia$lifesat_2)
+
+# Creating a numeric variable “happiness”
+WVS_Bolivia$happiness <- ((WVS_Bolivia$lifesat_2 + WVS_Bolivia$happiness_2)/2)
+table(WVS_Bolivia$happiness)
+```
+
+## 2. Predictors
+
+Since we will not work with all variables in the base, we will select only the necessary ones, reducing the base. We still have 2067 observations, but only 16 variables: 15 predictors and an outcome - happiness.
+
+```{r}
+WVS_Bolivia <- WVS_Bolivia[, c("happiness", "Q260", "Q262", 
+                               "Q288", "Q50", "Q2", "Q58", "Q273",
+                               "Q274", "Q6", "Q94", "Q169", "Q47", "Q48")]
+base::dim(WVS_Bolivia)
+```
+
+Let's rename the predictors for more convenience. 
+
+```{r}
+# demographic factors
+WVS_Bolivia$sex <- WVS_Bolivia$Q260
+WVS_Bolivia$age <- WVS_Bolivia$Q262
+
+# material factors
+WVS_Bolivia$income <- WVS_Bolivia$Q288
+WVS_Bolivia$financial_status <-  WVS_Bolivia$Q50
+
+# non-material factors: family and friends
+WVS_Bolivia$friends_imp <- WVS_Bolivia$Q2
+WVS_Bolivia$family_trust <- WVS_Bolivia$Q58
+WVS_Bolivia$family_status <- WVS_Bolivia$Q273
+WVS_Bolivia$children <- WVS_Bolivia$Q274
+
+# non-material factors: religion
+WVS_Bolivia$religion_imp <- WVS_Bolivia$Q6
+WVS_Bolivia$religion_participation <- WVS_Bolivia$Q94
+WVS_Bolivia$religion_VS_science <- WVS_Bolivia$Q169
+
+# additional factors
+WVS_Bolivia$health_status <- WVS_Bolivia$Q47
+WVS_Bolivia$influence_on_life <- WVS_Bolivia$Q48
+```
+
+## 3. Discovering the properties of the data: distributions, character and number of missings, types of the variables.
+
+1. **Outcome - happiness**. As we can see, data is piled up on the right, so it's left-skewed data. Minimal value is 0.70, while maximum is 4.00, and mean is 3.04. In addition, this variable includes 14 missing values. And the type of this variable is numeric.
+
+```{r}
+summary(WVS_Bolivia$happiness)
+hist(WVS_Bolivia$happiness, 
+     main = "Histogram of happiness in BOLIVIA", 
+     xlab = "Happiness", col = "#96D171")
+class(WVS_Bolivia$happiness)
+```
+
+2. Predictors
+
+**2.1 Gender**: this variable is categorical, it includes two categories - male and female. The variable does not contain missing values. In addition, the data between categories is distributed fairly evenly: 1024 for male and 1043 for female.
+    
+```{r}
+WVS_Bolivia$sex <- as.factor(WVS_Bolivia$sex)
+class(WVS_Bolivia$sex)
+table(WVS_Bolivia$sex)
+```
+```{r}
+bp_1 <- barplot(table(WVS_Bolivia$sex),
+        beside = T,
+        xlab = "Gender",
+        ylab = "Frequency",
+        ylim = c(0, 1100),
+        xaxt = "n",
+        main = "Barplot of gender",
+        col = c("#B0E0E6", "#FFE4B5"))
+
+axis(side = 1, at = bp_1[c(1,2)], labels = c("Male","Female"))
+
+text(bp_1, -1.4, table(WVS_Bolivia$sex), col = "black", pos = 3)
+```
+ 
+**2.2 Age**: data is piled up on the left, so it's right-skewed data. Minimal age is 18, while maximum is 85, and mean is 38.33. In addition, this variable does not contain missing values. And the type of this variable is numeric.
+  
+```{r}
+WVS_Bolivia$age <- as.numeric(ifelse(WVS_Bolivia$age<0, NA, WVS_Bolivia$age))
+class(WVS_Bolivia$age)
+summary(WVS_Bolivia$age)
+
+hist(WVS_Bolivia$age, 
+     main = "Histogram of age in Bolivia", 
+     xlab = "Age", col = "#96D171")
+```
+ 
+**2.3 Income**: data is almost symmetrical and close to a normal distribution. Minimal value is 1, while maximum is 10, and mean is 5.013. The most the most frequent value is 5 (540 respondents) and lest frequent is 9 (29 respondents). In addition, this variable includes 54 missing values. And the type of this variable is numeric.
+  
+```{r}
+WVS_Bolivia$income <- as.numeric(ifelse(WVS_Bolivia$income<0, NA, WVS_Bolivia$income))
+class(WVS_Bolivia$income)
+summary(WVS_Bolivia$income)
+table(WVS_Bolivia$income)
+
+hist(WVS_Bolivia$income, 
+     main = "Histogram of income in Bolivia", 
+     xlab = "Income", col = "#96D171")
+```
+
+**2.4 Financial status**: data is almost symmetrical and close to a normal distribution. Minimal value is 1, while maximum is 10, and mean is 6.454. The most the most frequent values are 5 and 7 (366 and 367 respondents) and lest frequent is 2 (40 respondents). In addition, this variable includes 9 missing values. And the type of this variable is numeric.
+
+```{r}
+WVS_Bolivia$financial_status <- as.numeric(ifelse(WVS_Bolivia$financial_status<0, 
+                                                 NA, WVS_Bolivia$financial_status))
+class(WVS_Bolivia$financial_status)
+summary(WVS_Bolivia$financial_status)
+table(WVS_Bolivia$financial_status)
+
+hist(WVS_Bolivia$financial_status,
+     main = "Histogram of financial situation in Bolivia", 
+     xlab = "Financial situation", col = "#96D171",
+     breaks = 10)
+```
+
+
+**2.5 Friends importance**: this variable is categorical (factor), it includes four categories - 1 - "Very important", 2 - "Rather important", 3 - "Not very important", 4 - "Not at all important". The variable contains 7 missing values. The answers between categories are distributed unevenly: 
+    
+    - 432 for "Very important", 
+    - 575 for "Rather important", 
+    - 918 for "Not very important" 
+    - 135 for "Not at all important"
+
+```{r}
+WVS_Bolivia$friends_imp <- as.factor(ifelse(WVS_Bolivia$friends_imp<0, 
+                                                 NA, WVS_Bolivia$friends_imp))
+class(WVS_Bolivia$friends_imp)
+summary(WVS_Bolivia$friends_imp)
+```
+
+```{r}
+bp_2 <- barplot(table(WVS_Bolivia$friends_imp),
+        beside = T,
+        xlab = "Friends importance",
+        ylab = "Frequency",
+        ylim = c(0, 1000),
+        xaxt = "n",
+        main = "Barplot of friends importance",
+        col = c("#BDDA85", "#FFE4B5", "#B0E0E6", "#BEC1D1"))
+
+text(bp_2, 3, table(WVS_Bolivia$friends_imp), col = "black", pos = 3)
+
+axis(side = 1, at = bp_2[c(1:4)], na.rm = T, 
+     labels = c("Very important", "Rather important", 
+                "Not very important", "Not at all important"), 
+     cex.axis = 0.75)
+```
+ 
+**2.6 Family trust**: this variable is categorical (factor), it includes four categories - 1 - "Trust completely", 2 - "Trust somewhat", 3 - "Do not trust very much", 4 - "Do not trust at all". The variable contains 1 missing value. The answers between categories are distributed unevenly: 
+  
+    - 1170 for "Trust completely", 
+    - 518 for "Trust somewhat", 
+    - 313 for "Do not trust very much"
+    - 65 for "Do not trust at all"
+
+```{r}
+WVS_Bolivia$family_trust <- as.factor(ifelse(WVS_Bolivia$family_trust<0, 
+                                                 NA, WVS_Bolivia$family_trust))
+class(WVS_Bolivia$family_trust)
+summary(WVS_Bolivia$family_trust)
+```
+
+So, let's recode this variable. After recoding we have 2 categories - "Trust" and "Do not trust". The unevenness is still present, but the number of observations in the categories is already greater (378 and 1689).
+
+```{r}
+WVS_Bolivia$family_trust <- as.factor(ifelse(as.numeric(WVS_Bolivia$family_trust) <= 2, "Trust",
+                            ifelse(as.numeric(WVS_Bolivia$family_trust) >= 3, "Do not trust",                                                                WVS_Bolivia$family_trust)))
+table(WVS_Bolivia$family_trust)
+```
+
+```{r}
+bp_3 <- barplot(table(WVS_Bolivia$family_trust),
+        beside = T,
+        xlab = "Family trust",
+        ylab = "Frequency",
+        ylim = c(0, 2000),
+        xaxt = "n",
+        main = "Barplot of family trust",
+        col = c("#B0E0E6", "#BDDA85"))
+
+text(bp_3, 100, table(WVS_Bolivia$family_trust), col = "black", pos = 3)
+
+axis(side = 1, at = bp_3[c(1:2)], na.rm = T, 
+     labels = c("Do not trust", "Trust"),
+     cex.axis = 0.75)
+``` 
+ 
+**2.7 Family status**: this variable is categorical (factor), it includes six categories - 1 - "Married", 2 - "Living together as married", 3 - "Divorced", 4 - "Separated", 5 - "Widowed", 6 - "Single". The variable contains 4 missing values. The answers between categories are distributed unevenly:
+ 
+    - 758 for category "Married", 
+    - 425 for "Living together as married", 
+    - 51 for "Divorced"
+    - 96 for "Separated", 
+    - 105 for "Widowed", 
+    - 628 for "Single".
+ 
+```{r}
+WVS_Bolivia$family_status <- as.factor(ifelse(WVS_Bolivia$family_status<0, 
+                                                 NA, WVS_Bolivia$family_status))
+class(WVS_Bolivia$family_status)
+summary(WVS_Bolivia$family_status)
+```
+
+Some categories are not saturated with observations, so we need to recode the variable.
+
+```{r}
+WVS_Bolivia$family_status <- 
+  as.factor(ifelse(as.numeric(WVS_Bolivia$family_status) <= 2, "Married",
+            ifelse(as.numeric(WVS_Bolivia$family_status) >= 3 & 
+                   as.numeric(WVS_Bolivia$family_status)<5, "Separated",
+            ifelse(as.numeric(WVS_Bolivia$family_status)==5, "Windowed", "Single"))))
+table(WVS_Bolivia$family_status)
+```
+```{r}
+bp_4 <- barplot(table(WVS_Bolivia$family_status),
+        beside = T,
+        xlab = "Family status",
+        ylab = "Frequency",
+        ylim = c(0, 1200),
+        xaxt = "n",
+        main = "Barplot of family status",
+        col = c("#F5F5DC", "#BDDA85", "#FFB796", "#B0E0E6" ))
+
+text(bp_4, 120, table(WVS_Bolivia$family_status), col = "black", pos = 3)
+
+axis(side = 1, at = bp_4[c(1:4)], na.rm = T, 
+     labels = c("Married", "Separated", "Single", "Widowed"), 
+     cex.axis = 0.75)
+```  
+ 
+**2.8 Children**: data is piled up on the left, so it's right-skewed data. Minimal value is 0, while maximum is 15, and mean is 2.266. The most the most frequent value is 0 (559 respondents) and lest frequent is 15 (1 respondent). In addition, this variable includes 1 missing value. And the type of this variable is numeric.
+
+```{r}
+WVS_Bolivia$children <- as.numeric(ifelse(WVS_Bolivia$children<0, 
+                                                 NA, WVS_Bolivia$children))
+class(WVS_Bolivia$children)
+summary(WVS_Bolivia$children)
+table(WVS_Bolivia$children)
+
+
+hist(WVS_Bolivia$children,
+     main = "Histogram of the number of children in the family in Bolivia", 
+     xlab = "Number of children", col = "#BDDA85")
+```
+
+Let's combine cases where there are more than three children in a family into one category.
+
+**2.9 Children_1**: this variable is categorical (factor), it includes five categories from 0 to 4. The variable doesn't contain missing values. The answers between categories are distributed almost evenly: 
+ 
+    - 559 respondents don't have children
+    - 338 respondents have 1 child
+    - 374 respondent have 2 children
+    - 287 respondent have 3 children
+    - 508 respondent have more than 3 children
+
+```{r}
+WVS_Bolivia$children_1 <- as.factor(ifelse(WVS_Bolivia$children > 3, 4, WVS_Bolivia$children))
+table(WVS_Bolivia$children_1)
+```
+
+```{r}
+bp_6 <- barplot(table(WVS_Bolivia$children_1),
+        beside = T,
+        xlab = "Number of children",
+        ylab = "Frequency",
+        ylim = c(0, 600),
+        xaxt = "n",
+        main = "Barplot of number of children",
+        col = c("#F5F5DC", "#BDDA85", "#FFE4B5", "#B0E0E6", "#FFB796"))
+
+text(bp_6, 50, table(WVS_Bolivia$children_1), col = "black", pos = 3)
+
+axis(side = 1, at = bp_6[c(1:5)], na.rm = T, 
+     labels = c("Don't have children", "One", 
+                "Two", "Three", "More than three"), 
+     cex.axis = 0.75)
+```  
+
+
+**2.10 Religion importance**: this variable is categorical (factor), it includes four categories - 1 - "Very important", 2 - "Rather important", 3 - "Not very important", 4 - "Not at all important". The variable contains 3 missing values. The answers between categories are distributed unevenly: 
+ 
+    - 1208 for "Very important", 
+    - 528 for "Rather important", 
+    - 281 for "Not very important",
+    - 47 for "Not at all important"
+
+```{r}
+WVS_Bolivia$religion_imp <- as.factor(ifelse(WVS_Bolivia$religion_imp<0, 
+                                                 NA, WVS_Bolivia$religion_imp))
+class(WVS_Bolivia$religion_imp)
+summary(WVS_Bolivia$religion_imp)
+```
+
+Due to unevenness, we need to recode the variable. After recoding we have 2 categories - "Important" and "Do not trust". The unevenness is still present, but the number of observations in the categories is already greater (328 and 1739).
+
+```{r}
+WVS_Bolivia$religion_imp <- as.factor(ifelse(as.numeric(WVS_Bolivia$religion_imp) <= 2, "Important",
+                            ifelse(as.numeric(WVS_Bolivia$religion_imp) >= 3, "Do not important",                                                                WVS_Bolivia$religion_imp)))
+table(WVS_Bolivia$religion_imp)
+```
+
+```{r}
+bp_6 <- barplot(table(WVS_Bolivia$religion_imp),
+        beside = T,
+        xlab = "Religion importance",
+        ylab = "Frequency",
+        ylim = c(0, 2000),
+        xaxt = "n",
+        main = "Barplot of religion importance",
+        col = c("#B0E0E6", "#BDDA85"))
+
+text(bp_6, 50, table(WVS_Bolivia$religion_imp), col = "black", pos = 3)
+
+axis(side = 1, at = bp_6[c(1:2)], na.rm = T, 
+     labels = c("Not important", "Important"), 
+     cex.axis = 0.75)
+```
+ 
+**2.11 Religion participation** (are you a member of church or religious organization?): this variable is categorical (factor), it includes three categories: 2 - "Active member", 1 - "Inactive member", 0 - "Don’t belong". The variable contains 5 missing values. The answers between categories are distributed almost evenly: 
+ 
+    - 640 for "Don’t belong", 
+    - 547 for "Inactive member", 
+    - 875 for "Active member".
+    
+```{r}
+WVS_Bolivia$religion_participation <- as.factor(ifelse(WVS_Bolivia$religion_participation<0, 
+                                                 NA, WVS_Bolivia$religion_participation))
+class(WVS_Bolivia$religion_participation)
+summary(WVS_Bolivia$religion_participation)
+```
+
+```{r}
+bp_7 <- barplot(table(WVS_Bolivia$religion_participation),
+        beside = T,
+        xlab = "Religion participation",
+        ylab = "Frequency",
+        ylim = c(0, 1000),
+        xaxt = "n",
+        main = "Barplot of religion participation",
+        col = c( "#B0E0E6", "#FFE4B5", "#BDDA85"))
+
+text(bp_7, 50, table(WVS_Bolivia$religion_participation), col = "black", pos = 3)
+
+axis(side = 1, at = bp_7[c(1:3)], na.rm = T, 
+     labels = c("Don’t belong", "Inactive member", "Active member"), 
+     cex.axis = 0.75)
+```
+
+**2.12 Religion_VS_science** (Please tell us if you strongly agree, agree, disagree, or strongly disagree with the following statement: "Whenever science and religion conflict, religion is always right"). This variable is categorical (factor), it includes four categories: 1 - "Strongly agree", 2 - "Agree", 3 - "Disagree", 4 - "Strongly disagree". The variable contains 84 missing values. The answers between categories are distributed unevenly: 
+
+    - 201 for "Strongly agree"
+    - 1174 for "Agree"
+    - 546 for "Disagree"
+    - 62 for "Strongly disagree"
+
+```{r}
+WVS_Bolivia$religion_VS_science <- as.factor(ifelse(WVS_Bolivia$religion_VS_science<0, 
+                                                 NA, WVS_Bolivia$religion_VS_science))
+class(WVS_Bolivia$religion_VS_science)
+summary(WVS_Bolivia$religion_VS_science)
+```
+
+We again need to recode the variable. After recoding we have 2 categories - "Agree" and "Disagree". The unevenness is still present, but the number of observations in the categories is already greater (1459 and 608).
+
+```{r}
+WVS_Bolivia$religion_VS_science <- 
+  as.factor(ifelse(as.numeric(WVS_Bolivia$religion_VS_science) <= 2, "Agree",
+            ifelse(as.numeric(WVS_Bolivia$religion_VS_science) >= 3, "Disagree",                                                           WVS_Bolivia$religion_VS_science)))
+table(WVS_Bolivia$religion_VS_science)
+```
+
+
+```{r}
+bp_8 <- barplot(table(WVS_Bolivia$religion_VS_science),
+        beside = T,
+        xlab = "Do you agree with the following statement: \nWhenever science and religion conflict, religion is always right",
+        ylab = "Frequency",
+        ylim = c(0, 1700),
+        xaxt = "n",
+        main = "Barplot of the importance of religion over science",
+        col = c("#BDDA85", "#FDC0C0"))
+
+text(bp_8, 50, table(WVS_Bolivia$religion_VS_science), col = "black", pos = 3)
+
+axis(side = 1, at = bp_8[c(1:2)], na.rm = T, 
+     labels = c("Agree", "Disagree"), 
+     cex.axis = 0.75)
+```
+
+
+**2.13 Health status** (state of health): this variable is categorical (factor), it includes five categories: 1 - "Very good", 2 - "Good", 3 - "Fair", 4 - "Poor", 5 - "Very poor". The variable contains 1 missing value. The answers between categories are distributed unevenly: 
+
+    - 164 for "Very good"
+    - 817 for "Good"
+    - 1007 for "Fair"
+    - 69 for "Poor"
+    - 9 for "Very poor"
+    
+```{r}
+WVS_Bolivia$health_status <- as.factor(ifelse(WVS_Bolivia$health_status<0, 
+                                                 NA, WVS_Bolivia$health_status))
+class(WVS_Bolivia$health_status)
+summary(WVS_Bolivia$health_status)
+```
+
+Let's recode the variable. After recoding we have 2 categories - "Good" and "Not so good". Now the data is distributed quite evenly: 982 observations for "Good" and 1086 for "Not so good".
+
+```{r}
+WVS_Bolivia$health_status <- 
+  as.factor(ifelse(as.numeric(WVS_Bolivia$health_status) <= 2, "Good",
+            ifelse(as.numeric(WVS_Bolivia$health_status) >= 3, "Not so good",                                                           WVS_Bolivia$health_status)))
+table(WVS_Bolivia$health_status)
+```
+
+```{r}
+bp_10 <- barplot(table(WVS_Bolivia$health_status),
+        beside = T,
+        xlab = "Health status",
+        ylab = "Frequency",
+        ylim = c(0, 1200),
+        xaxt = "n",
+        main = "Barplot of health status",
+        col = c("#BDDA85", "#FFE4B5"))
+
+text(bp_10, 50, table(WVS_Bolivia$health_status), col = "black", pos = 3)
+
+axis(side = 1, at = bp_10[c(1:2)], na.rm = T, 
+     labels = c("Good", "Not so good"), 
+     cex.axis = 0.75)
+```
+
+**2.14 Influence on life**:  As we can see, data is piled up on the right, so it's left-skewed data. Minimal value is 1 , while maximum is 10, and mean is 7.477. The most the most frequent values are 8 and 10 (460 and 463 respondents) and lest frequent are 1 and 2 (18 and 17 respondents). In addition, this variable includes 40 missing values. And the type of this variable is numeric.
+ 
+```{r}
+WVS_Bolivia$influence_on_life <- as.numeric(ifelse(WVS_Bolivia$influence_on_life<0, 
+                                                 NA, WVS_Bolivia$influence_on_life))
+class(WVS_Bolivia$influence_on_life)
+summary(WVS_Bolivia$influence_on_life)
+table(WVS_Bolivia$influence_on_life)
+
+hist(WVS_Bolivia$influence_on_life, 
+     main = "Histogram of influence on life in Bolivia", 
+     xlab = "Influence on life", col = "#BDDA85")
+```
+
+Let's remove all missed cases for further work. So, now we have 1891 observations.
+
+```{r}
+WVS_Bolivia <- na.omit(WVS_Bolivia)
+base::dim(WVS_Bolivia)
+```
+
+
+# II. Descriptive statistics. The nature of the relations in the data – among the outcome and the predictors (simple bivariate tests). 
+
+**1. Happiness and gender**: p-value is significant (0.04 < 0.05), so we can speak about the association between these variables. Male respondents are likely to have higher level of happiness (~ 3.09) than female respondents (~ 3.02).
+
+```{r, warning = F}
+t.test(WVS_Bolivia$happiness ~ WVS_Bolivia$sex)
+plotmeans(happiness ~ sex, data = WVS_Bolivia, 
+          xlab = "Gender", ylab = "Happiness",
+          main="Mean Plot with 95% CI")
+```
+
+**2. Happiness and age**: p-value is significant (p-value = 3.265e-15), so we can speak about the correlation between these variables. Correlation is very low (-0.18) and negative: the older the respondent, the lower their level of happiness is. But if we look at the graph, we will see a non-linear relationship between variables. We can observe that the level of happiness among respondents aged 18 to 25 rises, then begins to gradually decrease until the age of 55, then slightly increases until the age of 70, and then drops quite sharply.
+
+```{r}
+cor.test(WVS_Bolivia$happiness, WVS_Bolivia$age)
+ggplot(data = WVS_Bolivia, 
+       mapping = aes(x = age, y = happiness)) + 
+  geom_point(size = 0.9) +
+  geom_smooth()+
+  ggtitle("Relationship b/w age and happiness")+
+  labs(x = "\nAge\n",
+       y = "Happiness\n")+
+  scale_x_continuous(breaks = seq(15, 95, 10))+
+  scale_y_continuous(breaks = seq(0, 4, 0.5))+
+  theme_minimal()
+```
+
+**3. Happiness and income**: p-value is significant (p-value < 2.2e-16), so we can speak about the correlation between these variables. Correlation is low (0.23) and positive: the higher the income, the higher the level of happiness is.
+
+```{r}
+cor.test(WVS_Bolivia$happiness, WVS_Bolivia$income)
+ggplot(data = WVS_Bolivia, 
+       mapping = aes(x = income, y = happiness)) + 
+  geom_point(size = 0.9) +
+  geom_smooth()+
+  ggtitle("Relationship b/w income and happiness")+
+  labs(x = "\nIncome\n",
+       y = "Happiness")+
+  scale_x_continuous(breaks = seq(0, 10, 1))+
+  scale_y_continuous(breaks = seq(0, 4, 0.5))+
+  theme_minimal()
+```
+
+**4. Happiness and financial status**: p-value is significant (p-value < 2.2e-16), so we can speak about the correlation between these variables. Correlation is medium (0.45) and positive: the better the financial situation, the higher the level of happiness is.
+
+```{r}
+cor.test(WVS_Bolivia$happiness, WVS_Bolivia$financial_status)
+ggplot(data = WVS_Bolivia, 
+       mapping = aes(x = financial_status, y = happiness)) + 
+  geom_point(size = 0.9) +
+  geom_smooth()+
+   ggtitle("Relationship b/w financial status and happiness")+
+  labs(x = "\nFinancial status\n",
+       y = "Happiness")+
+  scale_x_continuous(breaks = seq(0, 10, 1))+
+  theme_minimal()
+```
+
+**5. Happiness and friends importance**: p-value is significant (0.00014 < 0.05), so we can speak about the association between these variables. For those respondents for whom friends are not very important or not at all important, the level of happiness is lower (~3.01 and ~2.90 respectively) than for those for whom friends are very important (~3.15).
+
+```{r}
+summary(aov(WVS_Bolivia$happiness ~ WVS_Bolivia$friends_imp))
+plotmeans(happiness ~ friends_imp, data = WVS_Bolivia, 
+          xlab = "The importance of friends", ylab = "Happiness",
+          main ="Mean Plot with 95% CI", mean.labels = T, digits = 2, pch=".")
+```
+
+**6. Happiness and family trust**: p-value is significant (p-value = 1.39e-12), so we can speak about the association between these variables. Respondents who trust family are happier (~3.11) than those who do not trust (~2.82).
+
+```{r}
+summary(aov(WVS_Bolivia$happiness ~ WVS_Bolivia$family_trust))
+plotmeans(happiness ~ family_trust, data = WVS_Bolivia, 
+          xlab = "Family trust", ylab = "Happiness",
+          main ="Mean Plot with 95% CI", mean.labels = T, digits = 2, pch=".")
+```
+
+**7. Happiness and family status**: p-value is significant (p-value = 1.56e-08), so we can speak about the association between these variables. Respondents who are separated or widowed are less happy (~2.82 and ~2.78 respectively) than those who are married (~3.07) or single (~3.12).
+
+```{r}
+summary(aov(WVS_Bolivia$happiness ~ WVS_Bolivia$family_status))
+plotmeans(happiness ~ family_status, data = WVS_Bolivia, 
+          xlab = "Family status", ylab = "Happiness",
+          main ="Mean Plot with 95% CI", mean.labels = T, digits = 2, pch=".")
+```
+
+**8. Happiness and children**: p-value is significant (p-value = 2.672e-11), so we can speak about the correlation between these variables. Correlation is very low (-0.15) and negative: the more children in the respondent's family, the less happy the respondent is.
+
+```{r}
+cor.test(WVS_Bolivia$happiness, WVS_Bolivia$children)
+ggplot(data = WVS_Bolivia, 
+       mapping = aes(x = children, y = happiness)) + 
+  geom_point(size = 0.9) +
+  geom_smooth()+
+   ggtitle("Relationship b/w number of children and happiness")+
+  labs(x = "\nNumber of children \n",
+       y = "Happiness")+
+  scale_x_continuous(breaks = seq(0, 15, 1))+
+  theme_minimal()
+```
+
+**9. Happiness and children**: p-value is significant (p-value = 8.62e-09, so we can speak about the association between these variables. Respondents who have three or more than three children in family are less happy (~2.90) than those who have one child (~3.16) or don't have children at all (~3.14).
+
+```{r}
+summary(aov(WVS_Bolivia$happiness ~ WVS_Bolivia$children_1))
+plotmeans(happiness ~ children_1, data = WVS_Bolivia, 
+          xlab = "Children", ylab = "Happiness",
+          main ="Mean Plot with 95% CI", mean.labels = T, digits = 2, pch=".")
+```
+
+**10. Happiness and religion importance**: p-value isn't significant (p-value = 0.395), so there are no association between these variables.
+
+```{r}
+summary(aov(WVS_Bolivia$happiness ~ WVS_Bolivia$religion_imp))
+plotmeans(happiness ~ religion_imp, data = WVS_Bolivia, 
+          xlab = "Religion importance", ylab = "Happiness",
+          main ="Mean Plot with 95% CI", mean.labels = T, digits = 2, pch=".")
+```
+
+**11. Happiness and religion participation**: p-value isn't significant (p-value = 0.369), so there are no association between these variables.
+
+```{r}
+summary(aov(WVS_Bolivia$happiness ~ WVS_Bolivia$religion_participation))
+plotmeans(happiness ~ religion_participation, data = WVS_Bolivia, 
+          xlab = "Religion participation", ylab = "Happiness",
+          main ="Mean Plot with 95% CI", mean.labels = T, digits = 2, pch=".")
+```
+
+**12. Happiness and the importance of religion over science**: p-value isn't significant (p-value = 0.589), so there are no association between these variables.
+
+```{r}
+summary(aov(WVS_Bolivia$happiness ~ WVS_Bolivia$religion_VS_science))
+plotmeans(happiness ~ religion_VS_science, data = WVS_Bolivia, 
+          xlab = "Whenever science and religion conflict, religion is always right", 
+          ylab = "Happiness",
+          main ="Mean Plot with 95% CI", mean.labels = T, digits = 2, pch=".")
+```
+
+
+**13. Happiness and health status**: p-value is significant (p-value < 2e-16), so we can speak about the association between these variables. Respondents whose health state is good are happier (~3.28) than those respondents, whose health state is not so good (~2.84).
+    
+```{r}
+summary(aov(WVS_Bolivia$happiness ~ WVS_Bolivia$health_status))
+plotmeans(happiness ~ health_status, data = WVS_Bolivia, 
+          xlab = "Health status", ylab = "Happiness",
+          main ="Mean Plot with 95% CI", mean.labels = T, digits = 2, pch=".")
+```
+
+**14. Happiness and influence on life**:  p-value is significant (p-value < 2.2e-16), so we can speak about the correlation between these variables. Correlation is low (0.342) and positive: the higher the influence on life, the higher the level of happiness is. 
+
+Also, we can notice a non-linear effect. It can be seen that for respondents who have little influence on their lives, the level of happiness is low and remains approximately the same in the range of 1-4 predictor units. Then, as the respondent's influence on life increases, happiness also increases in the range from 4 to 8 units of the predictor. Then the level of happiness stabilizes and almost does not change in the range from 8 to 10 units of influence on life.
+
+```{r}
+cor.test(WVS_Bolivia$happiness, WVS_Bolivia$influence_on_life)
+ggplot(data = WVS_Bolivia, 
+       mapping = aes(x = influence_on_life, y = happiness)) + 
+  geom_point(size = 0.9) +
+  geom_smooth()+
+   ggtitle("Relationship b/w influence on life and happiness")+
+  labs(x = "\nInfluence on life\n",
+       y = "Happiness")+
+  scale_x_continuous(breaks = seq(0, 10, 1))+
+  theme_minimal()
+```
+
+
+# III. Regression analysis 
+
+# 1. Multiple regression (with comparing models)
+
+# Model 1: sex & age
+
+We use the controls variables - sex, age. And firstly, let's include only them in the regression model. We can see that model_1 is statistically significant (p-value = 2.412e-15) as well as both predictors. Anyway, Adjusted R-squared is really low (Adjusted R-squared = 0.034), so the proportion of the variance of the dependent variable explained by the considered model is 3%.
+
+1) Gender: we interpret sex2 (female) compared to male. For women, compared to men, the level of happiness is lower by 0.07.
+2) Age: we can see negative trend: an increase in age by 1 year entails an decrease of happiness by 0.008 points.
+
+```{r}
+model_1 <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age)
+summary(model_1)
+```
+
+# Model 2: + income
+
+We add income as a predictor to the previous model_1. So, model_2 is statistically significant (p-value: < 2.2e-16). Adjusted R-squared became higher (0.06812), therefore the proportion of the variance of the dependent variable explained by the considered model is 7%.
+
+3) Income: we can see positive trend: an increase in income by 1 point entails an increase of happiness by 0.065. points.
+*It can be seen that the gender predictor has become insignificant, perhaps this is a sign of multicollinearity.
+
+```{r}
+model_2 <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age 
+              + WVS_Bolivia$income)
+summary(model_2)
+```
+
+Moreover, according to anova, model_2 is better than model_1 (RSS is lower for model_2: 799.78 < 829.50).
+
+```{r}
+anova(model_1, model_2) 
+```
+
+# Model 3: + financial status
+
+We add financial_status as a predictor to the previous model_2. So, model_3 is statistically significant (p-value: < 2.2e-16) as well as added predictor. Adjusted R-squared became higher (0.2243), therefore the proportion of the variance of the dependent variable explained by the considered model is 22%.
+
+4) Financial status: we can see positive trend: an increase in financial status by 1 point entails an increase of happiness by 0.135 points.
+
+
+```{r}
+model_3 <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age + 
+                WVS_Bolivia$income + WVS_Bolivia$financial_status)
+summary(model_3)
+```
+
+Moreover, according to anova, model_3 is better than model_2 (RSS is lower for model_3: 665.37 < 799.78).
+
+```{r}
+anova(model_2, model_3)
+```
+
+# Model 4: + friends importance
+
+We add friends importance as a predictor to the previous model_3. So, model_4 is statistically significant (p-value: <2.2e-16) as well as added predictor (more specifically, the categories 3 - "Not very important" and 4 - "Not at all important"). Adjusted R-squared became higher (0.227), therefore the proportion of the variance of the dependent variable explained by the considered model is 22,7%.
+
+5) Friends importance: we interpret friends_imp3 ("Not very important") and friends_imp3 ("Not at all important") compared to "Very important". Respondents for whom friends are not very important, compared to those for whom friends are very important, have the level of happiness lower by 0.101. And respondents for whom friends are not at all important, compared to those for whom friends are very important, have the level of happiness lower by 0.141.
+
+```{r}
+model_4 <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age 
+              + WVS_Bolivia$income + WVS_Bolivia$financial_status 
+              + WVS_Bolivia$friends_imp)
+summary(model_4)
+```
+
+Moreover, according to anova, model_4 is better than model_3 (RSS is lower for model_4: 661.83 < 665.37).
+
+```{r}
+anova(model_3, model_4)
+```
+
+# Model 5: + family trust
+
+We add family trust as a predictor to the previous model_4. So, model_5 is statistically significant (p-value: <2.2e-16) as well as added predictor. Adjusted R-squared became higher (0.2344), therefore the proportion of the variance of the dependent variable explained by the considered model is 23,4%.
+
+6) Family trust: we interpret family_trust ("Trust") compared to "Do not trust". Respondents who trust to family, compared to those who do not trust, have the level of happiness higher by 0.159.
+
+```{r}
+model_5 <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age 
+              + WVS_Bolivia$income + WVS_Bolivia$financial_status 
+              + WVS_Bolivia$friends_imp + WVS_Bolivia$family_trust)
+summary(model_5)
+```
+
+According to anova, model_5 is better than model_4 (RSS is lower for model_5: 655.30 < 661.83).
+
+```{r}
+anova(model_4, model_5)  
+```
+
+# Model 6: + family status
+
+We add family status as a predictor to the previous model_6. So, model_7 is statistically significant (p-value: <2.2e-16) as well as added predictor (more specifically, the categories "Separated" and "Single"). Adjusted R-squared became higher (0.2391), therefore the proportion of the variance of the dependent variable explained by the considered model is 23,9%.
+
+7) Family status: we interpret family statuses compared to "Married". Respondents who are separated or single, compared to those who are married, have the level of happiness lower by 0.11.
+
+```{r}
+model_6 <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age 
+              + WVS_Bolivia$income + WVS_Bolivia$financial_status 
+              + WVS_Bolivia$friends_imp + WVS_Bolivia$family_trust 
+              + WVS_Bolivia$family_status)
+summary(model_6)
+```
+
+According to anova, model_6 is better than model_5 (RSS is lower for model_6: 650.3 < 655.3)
+
+```{r}
+anova(model_5, model_6) 
+```
+
+# Model 7: + number of children
+
+We add number of children as a predictor to the previous model_6. So, model_7 is statistically significant (p-value: <2.2e-16), but added predictor isn't.
+
+```{r}
+model_7 <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age 
+              + WVS_Bolivia$income + WVS_Bolivia$financial_status
+              + WVS_Bolivia$friends_imp + WVS_Bolivia$family_trust 
+              + WVS_Bolivia$family_status + WVS_Bolivia$children)
+summary(model_7)
+```
+
+According to anova, we can't say that model_7 is better than model_6 even though RSS is lower for model_7, because this difference is not statistically significant (p-value = 0.181, >0.05).
+
+```{r}
+anova(model_6, model_7)
+```
+
+# Model 8: + number of children (categorical)
+
+We add number of children (categorical) as a predictor to the previous model_8. So, model_9 is statistically significant (p-value: <2.2e-16), but added predictor isn't.
+
+```{r}
+model_8 <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age 
+              + WVS_Bolivia$income + WVS_Bolivia$financial_status
+              + WVS_Bolivia$friends_imp + WVS_Bolivia$family_trust 
+              + WVS_Bolivia$family_status + WVS_Bolivia$children + WVS_Bolivia$children_1)
+summary(model_8)
+```
+
+According to anova, we can't say that model_8 is better than model_7 even though RSS is lower for model_8, because this difference is not statistically significant (p-value = 0.253, > 0.05).
+
+```{r}
+anova(model_7, model_8)
+```
+
+# Model 9: + religion importance
+
+We add religion importance as a predictor to the previous model_8. So, model_9 is statistically significant (p-value: <2.2e-16), as well as added predictor (more specifically, the category "Important"). Adjusted R-squared became a little higher (0.241), therefore the proportion of the variance of the dependent variable explained by the considered model is 24,1%.
+
+10) Religion importance: we interpret religion importance compared to "Not important". Respondents for whom religion is important, compared to those for whom religion is not important, have the level of happiness higher by 0.076.
+
+```{r}
+model_9 <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age 
+               + WVS_Bolivia$income + WVS_Bolivia$financial_status 
+               + WVS_Bolivia$friends_imp + WVS_Bolivia$family_trust 
+               + WVS_Bolivia$family_status + WVS_Bolivia$children 
+               + WVS_Bolivia$children_1 + WVS_Bolivia$religion_imp)
+summary(model_9)
+```
+
+According to anova, model_9 is better than model_8: RSS is lower for model_9 (646.47 < 647.83).
+
+```{r}
+anova(model_8, model_9)
+```
+
+# Model 10: + religion participation
+
+We add religion participation as a predictor to the previous model_9. So, model_10 is statistically significant (p-value: <2.2e-16), but added predictor isn't.
+
+*It can be seen that the religion_imp predictor has become insignificant, perhaps this is a sign of multicollinearity.
+
+```{r}
+model_10 <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age 
+               + WVS_Bolivia$income + WVS_Bolivia$financial_status
+               + WVS_Bolivia$friends_imp + WVS_Bolivia$family_trust 
+               + WVS_Bolivia$family_status + WVS_Bolivia$children 
+               + WVS_Bolivia$children_1 + WVS_Bolivia$religion_imp 
+               + WVS_Bolivia$religion_participation)
+summary(model_10)
+```
+
+According to anova, we can't say that model_10 is better than model_9, because this difference is not statistically significant (p-value = 0.086, >0.05).
+
+```{r}
+anova(model_9, model_10) 
+```
+
+# Model 11: + importance of religion over science
+
+We add the importance of religion over science as a predictor to the previous model_10. So, model_11 is statistically significant (p-value: <2.2e-16), but added predictor isn't.
+
+```{r}
+model_11 <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age 
+               + WVS_Bolivia$income + WVS_Bolivia$financial_status
+               + WVS_Bolivia$friends_imp + WVS_Bolivia$family_trust + WVS_Bolivia$family_status 
+               + WVS_Bolivia$children + WVS_Bolivia$children_1 + WVS_Bolivia$religion_imp 
+               + WVS_Bolivia$religion_participation + WVS_Bolivia$religion_VS_science)
+summary(model_11)
+```
+
+According to anova, we can't say that model_11 is better than model_10, because this difference is not statistically significant (p-value = 0.073, >0.05).
+
+```{r}
+anova(model_10, model_11)  
+```
+
+
+# Model 12: + health status
+
+We add health status a predictor to the previous model_13. So, model_14 is statistically significant (p-value: <2.2e-16), as well as each category of the added predictor. Adjusted R-squared became higher (0.2778), therefore the proportion of the variance of the dependent variable explained by the considered model is 27,8%.
+
+11) Health status: we interpret category of health status compared to "Good". Respondents whose health status is "Not so good", compared to those whose health status "Good", have the level of happiness lower by 0.269. 
+
+*It can be seen that the religion_imp predictor has become insignificant, perhaps this is a sign of multicollinearity.
+
+```{r}
+model_12 <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age 
+               + WVS_Bolivia$income + WVS_Bolivia$financial_status  
+               + WVS_Bolivia$friends_imp + WVS_Bolivia$family_trust + WVS_Bolivia$family_status 
+               + WVS_Bolivia$children + WVS_Bolivia$children_1 + WVS_Bolivia$religion_imp 
+               + WVS_Bolivia$religion_participation + WVS_Bolivia$religion_VS_science 
+               + WVS_Bolivia$health_status)
+summary(model_12)
+```
+
+According o anova, model_12 is better than model_11 (RSS is lower for model_12: 613.92 < 643.67).
+
+```{r}
+anova(model_11, model_12) 
+```
+
+# Model 13: + influence on life
+
+We add influence on life as a predictor to the previous model_12. So, model_13 is statistically significant (p-value: < 2.2e-16) as well added predictor. Adjusted R-squared became higher (0.3198), therefore the proportion of the variance of the dependent variable explained by the considered model is 32%.
+
+12) Influence on life: we can see positive trend: an increase in influence on life by 1 point entails an increase of happiness by 0.07 points.
+
+```{r}
+model_13 <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age 
+               + WVS_Bolivia$income + WVS_Bolivia$financial_status 
+               + WVS_Bolivia$friends_imp + WVS_Bolivia$family_trust + WVS_Bolivia$family_status 
+               + WVS_Bolivia$children + WVS_Bolivia$children_1 + WVS_Bolivia$religion_imp 
+               + WVS_Bolivia$religion_participation + WVS_Bolivia$religion_VS_science 
+               + WVS_Bolivia$health_status + WVS_Bolivia$influence_on_life)
+summary(model_13)
+```
+
+According to anova, model_13 is better than model_12 (RSS is lower for model_13: 577.91 < 613.92).
+
+```{r}
+anova(model_12, model_13)
+```
+
+# Final model
+
+In the final model, we include only those predictors that are statistically significant and the addition of which to the considered models brought significant improvements according to anova.
+
+The final model, in addition to control variables, includes 8 predictors: income, financial status, friends importance, family trust, family status, religion importance over science, health status and influence on life.
+
+Final model is statistically significant (p-value: < 2.2e-16). Adjusted R-squared is 0.3189, therefore the proportion of the variance of the dependent variable explained by the considered model is 31,9%.
+
+1) **Gender**: is not a statistically significant predictor, but we left it in the model as a control variable.
+
+2) **Age**: negative trend - an increase in age by 1 year entails an decrease of happiness by 0.004 points.
+
+3) **Income**: positive trend - an increase in income by 1 point entails an increase of happiness by 0.18 points.
+
+4) **Financial status**: positive trend - an increase in financial status by 1 point entails an increase of happiness by 0.1 points.
+
+5) **Friends importance**: respondents for whom friends are not very important, compared to those for whom friends are very important, have the level of happiness lower by 0.07.
+
+6) **Family trust**: respondents who trust to family, compared to those who do not trust, have the level of happiness higher by 0.12.
+
+7) **Family status**: respondents who are separated, compared to those who are married, have the level of happiness lower by 0.16. Respondents who are single, compared to those who are married, have the level of happiness lower by 0.11.
+
+8) **Religion importance over science**: respondents who disagree with the statement "Whenever science and religion conflict, religion is always right", compared to those who agree with this statement, have the level of happiness lower by 0.08.
+
+9) **Health status**: respondents whose health status is "Not so good", compared to those whose health status is "Good", have the level of happiness lower by 0.25.
+
+10) **Influence on life**: positive trend - an increase in influence on life by 1 point entails an increase of happiness by 0.07 points.
+
+```{r}
+model_final <- lm(WVS_Bolivia$happiness ~ WVS_Bolivia$sex + WVS_Bolivia$age 
+                  + WVS_Bolivia$income + WVS_Bolivia$financial_status + WVS_Bolivia$friends_imp 
+                  + WVS_Bolivia$family_trust + WVS_Bolivia$family_status + WVS_Bolivia$religion_VS_science 
+                  + WVS_Bolivia$health_status + WVS_Bolivia$influence_on_life)
+summary(model_final)
+```
+
+To compare predictor weights, let's look at standardized coefficients (beta coefficients). The most important predictors are financial_status (0.31), influence_on_life (0.22) and health_status (category "Not so good": -0.18).
+
+```{r}
+lm.beta::lm.beta(model_final)
+```
+
+
+## 2. Model diagnostics. Diagnostic plots’ description (plot(model))
+
+1.	Residuals Vs Fitted – red line is close to be horizontal, which indicates a close-to-linear relationship
+
+```{r}
+plot(model_final, which = 1)
+```
+
+2.	Normal QQ – it's almost straight line, so the data is close to a normal distribution.
+
+```{r}
+plot(model_final, which = 2)
+```
+
+3.  Scale-Location (Heteroscedasticity) – the residuals are not randomly located. Also, ncvTest is significant (p = < 2.22e-16), that is a sign of heteroscedasticity.
+
+```{r}
+plot(model_final, which = 3)
+ncvTest(model_final)
+```
+
+4. Residuals Vs Leverage (Outliers and leverages). The null for Bonferonni test is that the observation is not an outlier. In this model we have one case that could be outliers and Bonferonni p-value shows that this case is not outlier: Bonferonni p-value is higher than 0.05 (0.371). Therefore, we accept the null that there are no outliers in the model. Well, also on the plot we do not see the red dotted line that would delimit the influential outliers.
+
+```{r}
+outlierTest(model_final)
+plot(model_final, which = 4)
+```
+
+5. Multicollinearity test
+
+Variance inflation factors are less than 5 for all predictors, therefore there is no multicollinearity in model_final.
+
+```{r}
+vif(model_final)
+```
+
+## 3. Linearity check 
+
+To construct a non-linear relationship between variables factor of age as a predictor was taken. This model is statistically significant (p-value < 0.05). We can observe that the level of happiness among respondents aged 18 to 25 rises, then begins to gradually decrease until the age of 55, then slightly increases until the age of 70, and then drops quite sharply.
+
+```{r}
+library(gam)
+model_non_linear_1 <- gam(WVS_Bolivia$happiness ~  s(WVS_Bolivia$age))
+summary(model_non_linear_1)
+
+ggplot(WVS_Bolivia, aes(age, happiness)) +
+  geom_point(size = 0.9) +
+  labs(x = "\nAge\n",
+       y = "Happiness\n") +
+  ggtitle("Non-linear effect - 1") +
+  scale_x_continuous(breaks  = seq(15, 95, 10)) +
+  scale_y_continuous(breaks  = seq(1, 4, 0.5)) +
+  theme_classic()+
+  stat_smooth(method = "gam", formula = y ~ s(x))
+```
+
+Another non-linear relationship was seen when taking influence on life as a predictor of happiness. This model is statistically significant (p-value < 0.05). It can be seen that for respondents who have little influence on their lives, the level of happiness is low and remains approximately the same in the range of 1-4 predictor units. Then, as the respondent's influence on life increases, happiness also increases in the range from 4 to 8 units of the predictor. Then the level of happiness stabilizes and almost does not change in the range from 8 to 10 units of influence on life.
+
+```{r}
+library(gam)
+model_non_linear_2 <- gam(WVS_Bolivia$happiness ~  s(WVS_Bolivia$influence_on_life))
+summary(model_non_linear_2)
+
+ggplot(WVS_Bolivia, aes(influence_on_life, happiness)) +
+  geom_point(size = 0.9) +
+  labs(x = "\nTo what extent do you feel you are \ninfluencing the course of your life?\n",
+       y = "Happiness\n") +
+  ggtitle("Non-linear effect - 2") +
+  scale_x_continuous(breaks  = seq(1, 10, 1)) +
+  scale_y_continuous(breaks  = seq(1, 4, 0.5)) +
+  theme_classic()+
+  stat_smooth(method = "gam", formula = y ~ s(x))
+
+```
+
+
+
+
+## 4. Interaction effect 
+
+Interaction effect between religion importance and family status was created and we got the following result: religion importance as a predictor by itself is not statistically significant (p-value > 0.05, p-value = 0.21). But in interaction with family status, it shows that single respondents for whom religion is important are happier by 0.2 than single respondents for whom religion is not important.
+
+```{r}
+model_interaction <- lm(happiness ~ age + sex + income + financial_status + friends_imp 
+                        + family_trust + religion_imp*family_status + religion_VS_science 
+                        + health_status + influence_on_life, WVS_Bolivia)
+summary(model_interaction)
+```
+
+```{r}
+plot_model(model_interaction, type = "pred",
+           terms = c("religion_imp", "family_status"),
+           title = "Predicted values of Happiness: \nInteraction effect - religion importance and family status",
+           axis.title = c("Religion importance","Happiness"),
+           dodge = 0.5) +
+  theme_bw()+
+  scale_x_discrete(limits = c("Not important", "Important"))+
+  scale_colour_manual(name = "Family status",
+                       values = c("#DB235E", "#24A300", "#AE7D66", "#007BA3"),
+                       labels = c("Married", "Separated", "Widowed", "Single"))
+
+```
+
+
+# Meaningful interpretation 
+
+The conducted analysis allows both to accept a number of hypotheses, and to reject some of them or clarify them. Thus, despite the assumption, **income** and  **financial situation** factors are statistically significant in determining the level of happiness in Bolivia. The higher the income and the better the financial condition, the higher the level of happiness.
+
+However, as expected, **family trust**, **marital status**, **the importance of friendship**, **the importance of religion over science** are significant factors in determining happiness in Bolivia. Family, family trust, friendship allow the respondent to feel happier than the respondent for whom these factors are not important, or who has difficulties with marital status - divorce, widowhood. In addition, another important determinants of happiness were identified - the **state of health** of the respondent and their ability to **influence life**.
+
+# Conclusion
+
+To sum up, it cannot be argued that in Bolivia, as one of the poorest countries in Latin America, material factors as happiness predictors are insignificant. Those factors retain an influence on happiness, while the role of non-material factors - family, friends, health, and to a lesser extent - religion is also great. This may be due to the fact that material factors provide an opportunity to improve non-material factors, such as health or the quality of family provision.
