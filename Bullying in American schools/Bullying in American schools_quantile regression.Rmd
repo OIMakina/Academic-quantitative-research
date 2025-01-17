@@ -1,0 +1,821 @@
+---
+title: "Advanced data analysis_HW 3"
+author: "Olga Lavrinenko"
+date: "2023-11-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning = F, message = F}
+library(foreign)
+library(haven)
+library(DescTools)
+library(gplots)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(naniar)
+library(mi)
+library(missForest)
+library(caret)
+library(performance)
+library(sjPlot)
+library(quantreg)
+library(MASS)
+```
+
+# Task
+
+This time, we will work with TIMSS data for the 8th grade and predict bullying in American schools. As bullying is not such a frequent thing, it is important to find a fitting method that would target those who do have this experience. For that, we will use quantile regression.
+
+```{r, warning = F, message = F}
+setwd("D:/Data Analytics For Politics And Society/II year_Data Analysis Advanced Level (1-2 modules)/Part II/HT")
+data_full <- read.spss("bsgusam7.sav", to.data.frame = TRUE)
+```
+
+# 1. Data preporation
+
+Choose the variables: BSBGSB,BSBGSSB, BSBG05A, BSBG05B,BSBG05C, BSBG05D, BSBG05E, BSBG05F, BSBG05G, BSMMAT01, ITSEX, BSBG06A, BSBG06B.
+
+Find what they mean and how they are coded in the Codebook (here: https://timss2019.org/international-database/). NB! Mind the coding!
+
+```{r}
+data_USA <- data_full[, c("BSBGSB", "BSBGSSB", "BSBG05A", "BSBG05B", 
+                          "BSBG05C", "BSBG05D", "BSBG05E", "BSBG05F", "BSBG05G", 
+                          "BSBG06A", "BSBG06B", "BSMMAT01", "ITSEX")]
+```
+
+    - BSBGSB: Student Bullying/SCL (1-12) чем больше, тем меньше 
+    - BSBGSSB: Students Sense of School Belonging/SCL (1-12)
+    - BSBG05A: GEN\HOME POSSESS\COMPUTER TABLET (1- Yes, 0 - No)
+    - BSBG05B: GEN\HOME POSSESS\STUDY DESK
+    - BSBG05C: GEN\HOME POSSESS\OWN ROOM
+    - BSBG05D: GEN\HOME POSSESS\INTERNET CONNECTION
+    - BSBG05E: GEN\HOME POSSESS\OWN MOBILE PHONE
+    - BSBG05F: GEN\HOME POSSESS\Gaming systems
+    - BSBG05G: GEN\HOME POSSESS\ DVD
+    - BSMMAT01: 1ST PLAUSIBLE VALUE MATICS (with PSI) (1-13)
+    - ITSEX: Sex of Students (1-Female, 2-Male)
+    - BSBG06A: GEN\HIGHEST LVL OF EDU OF FATHER>
+    - BSBG06B: GEN\HIGHEST LVL OF EDU OF MOTHER>
+
+```{r}
+lookup <- c(gender = "ITSEX", bullying = "BSBGSB", belonging = "BSBGSSB", 
+            computer_tablet = "BSBG05A",  study_desk ="BSBG05B", own_room = "BSBG05C", 
+            internet = "BSBG05D", own_phone = "BSBG05E", gaming_systems = "BSBG05F", dvd = "BSBG05G",
+            math_test = "BSMMAT01", edu_father = "BSBG06A", edu_mother = "BSBG06B")
+
+data_USA <- rename(data_USA, all_of(lookup))
+```
+
+
+# 2. Descriptive analysis
+
+## 2.1 Conduct descriptive analysis. Assign correct variable types. 
+
+### 2.1 Gender
+
+This variable is binary, it includes two categories - male and female. The variable contains 5 missing values. The data between categories is distributed evenly: 4344 for female and 4349 for male.
+    
+```{r}
+data_USA$gender <- as.factor(data_USA$gender)
+class(data_USA$gender)
+sum(is.na(data_USA$gender))
+table(data_USA$gender)
+
+bp_1 <- barplot(table(data_USA$gender),
+        beside = T,
+        xlab = "Gender",
+        ylab = "Frequency",
+        ylim = c(0, 5000),
+        xaxt = "n",
+        main = "Barplot of gender",
+        col = c("#FFDAB9", "#8B668B"))
+
+axis(side = 1, at = bp_1[c(1,2)], labels = c("Female", "Male"))
+
+text(bp_1, -1.4, table(data_USA$gender), col = "black", pos = 3)
+```
+
+### 2.2 Level of belonging
+
+The type of this variable is numeric, it contains 411 missing values. Data is piled up on the right, so it's left-skewed data. Minimal value of belonging is 3.92, while maximum is 13.27, and mean is 9.38. 
+
+It can be seen that there are several observations where the level of belonging is about 4, these observations are potential outliers. There is also a sufficient frequency of observations indicating a very high level of belonging - about 12-13 (800 - 700 observations each).
+
+```{r}
+class(data_USA$belonging)
+data_USA$belonging <- as.numeric(as.character(data_USA$belonging))
+summary(data_USA$belonging)
+class(data_USA$belonging)
+
+hist(data_USA$belonging, 
+     main = "Histogram of belonging level", 
+     xlab = "Level of belonging", col = "#8B668B")
+
+```
+
+### 2.3 Computer tablet
+
+This variable is binary, it includes two categories - "Yes" and "No". The variable contains 361 missing values. The data between categories is distributed unevenly: 7868 for "Yes" and 469 for "No".
+
+```{r}
+data_USA$computer_tablet <- as.factor(data_USA$computer_tablet)
+class(data_USA$computer_tablet)
+sum(is.na(data_USA$computer_tablet))
+table(data_USA$computer_tablet)
+
+bp_2 <- barplot(table(data_USA$computer_tablet),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 8000),
+        xaxt = "n",
+        main = "Do you have a computer or tablet?",
+        col = c("#FFDAB9", "#8B668B"))
+
+axis(side = 1, at = bp_2[c(1,2)], labels = c("Yes", "NO"))
+
+text(bp_2, 500, table(data_USA$computer_tablet), col = "black", pos = 3)
+```
+
+### 2.4 Study desk
+
+This variable is binary, it includes two categories - "Yes" and "No". The variable contains 360 missing values. The data between categories is distributed unevenly: 6925 for "Yes" and 1413 for "No".
+
+```{r}
+data_USA$study_desk <- as.factor(data_USA$study_desk)
+class(data_USA$study_desk)
+sum(is.na(data_USA$study_desk))
+table(data_USA$study_desk)
+
+bp_3 <- barplot(table(data_USA$study_desk),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 8000),
+        xaxt = "n",
+        main = "Do you have a study desk?",
+        col = c("#FFDAB9", "#8B668B"))
+
+axis(side = 1, at = bp_3[c(1,2)], labels = c("Yes", "NO"))
+
+text(bp_3, 1500, table(data_USA$study_desk), col = "black", pos = 3)
+```
+
+### 2.5 Own room
+
+This variable is binary, it includes two categories - "Yes" and "No". The variable contains 355 missing values. The data between categories is distributed unevenly: 6958 for "Yes" and 1385 for "No".
+
+```{r}
+data_USA$own_room <- as.factor(data_USA$own_room)
+class(data_USA$own_room)
+sum(is.na(data_USA$own_room))
+table(data_USA$own_room)
+
+bp_4 <- barplot(table(data_USA$own_room),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 8000),
+        xaxt = "n",
+        main = "Do you have your own room?",
+        col = c("#FFDAB9", "#8B668B"))
+
+axis(side = 1, at = bp_4[c(1,2)], labels = c("Yes", "NO"))
+
+text(bp_4, 1500, table(data_USA$own_room), col = "black", pos = 3)
+```
+
+### 2.6 Internet connection
+
+This variable is binary, it includes two categories - "Yes" and "No". The variable contains 365 missing values. The data between categories is distributed unevenly: 7984 for "Yes" and 349 for "No".
+
+```{r}
+data_USA$internet <- as.factor(data_USA$internet)
+class(data_USA$internet)
+sum(is.na(data_USA$internet))
+table(data_USA$internet)
+
+bp_5 <- barplot(table(data_USA$internet),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 8000),
+        xaxt = "n",
+        main = "Do you have internet connection?",
+        col = c("#FFDAB9", "#8B668B"))
+
+axis(side = 1, at = bp_5[c(1,2)], labels = c("Yes", "NO"))
+
+text(bp_5, 500, table(data_USA$internet), col = "black", pos = 3)
+```
+
+### 2.7 Own mobile phone
+
+This variable is binary, it includes two categories - "Yes" and "No". The variable contains 371 missing values. The data between categories is distributed unevenly: 7804 for "Yes" and 523 for "No".
+
+```{r}
+data_USA$own_phone <- as.factor(data_USA$own_phone)
+class(data_USA$own_phone)
+sum(is.na(data_USA$own_phone))
+table(data_USA$own_phone)
+
+bp_6 <- barplot(table(data_USA$own_phone),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 8000),
+        xaxt = "n",
+        main = "Do you have your own mobile phone?",
+        col = c("#FFDAB9", "#8B668B"))
+
+axis(side = 1, at = bp_6[c(1,2)], labels = c("Yes", "NO"))
+
+text(bp_6, 500, table(data_USA$own_phone), col = "black", pos = 3)
+```
+
+### 2.8 Gaming systems
+
+This variable is binary, it includes two categories - "Yes" and "No". The variable contains 362 missing values. The data between categories is distributed unevenly: 7234 for "Yes" and 1102 for "No".
+
+```{r}
+data_USA$gaming_systems <- as.factor(data_USA$gaming_systems)
+class(data_USA$gaming_systems)
+sum(is.na(data_USA$gaming_systems))
+table(data_USA$gaming_systems)
+
+bp_7 <- barplot(table(data_USA$gaming_systems),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 8000),
+        xaxt = "n",
+        main = "Do you have gaming systems at your home?",
+        col = c("#FFDAB9", "#8B668B"))
+
+axis(side = 1, at = bp_7[c(1,2)], labels = c("Yes", "NO"))
+
+text(bp_7, 1500, table(data_USA$gaming_systems), col = "black", pos = 3)
+```
+
+### 2.9 DVDs
+
+This variable is binary, it includes two categories - "Yes" and "No". The variable contains 368 missing values. The data between categories is distributed unevenly: 6910 for "Yes" and 1420 for "No".
+
+```{r}
+data_USA$dvd <- as.factor(data_USA$dvd)
+class(data_USA$dvd)
+sum(is.na(data_USA$dvd))
+table(data_USA$dvd)
+
+bp_8 <- barplot(table(data_USA$dvd),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 8000),
+        xaxt = "n",
+        main = "Do you have DVDs at your home?",
+        col = c("#FFDAB9", "#8B668B"))
+
+axis(side = 1, at = bp_8[c(1,2)], labels = c("Yes", "NO"))
+
+text(bp_8, 1500, table(data_USA$dvd), col = "black", pos = 3)
+```
+
+### 2.10 Math test
+
+The type of this variable is numeric, it doesn't contain missing values. Data is normally distributed. Minimal value is 201.1, while maximum is 824.7, and mean is 518.6. 
+
+```{r}
+class(data_USA$math_test)
+data_USA$math_test <- as.numeric(as.character(data_USA$math_test))
+summary(data_USA$math_test)
+class(data_USA$math_test)
+
+hist(data_USA$math_test, 
+     main = "Histogram: math test", 
+     xlab = "Math test", col = "#8B668B")
+```
+
+
+### 2.11 Education level (father)
+
+The variable is categorical and initially it contains 9 categories. But they are distributed completely unevenly, so it was necessary to recode. Finally the variables includes three categories: those whose parent A has higher education (3092), those whose parent A doesn't (2948), and those who doesn't know (2187). The last category was quite numerous to be converted into NA, and it wouldn't be very properly to lose quarter of all observations in the regression.
+
+```{r}
+data_USA$edu_father <- as.factor(data_USA$edu_father)
+class(data_USA$edu_father)
+sum(is.na(data_USA$edu_father))
+table(data_USA$edu_father)
+
+data_USA$edu_father <- as.numeric(data_USA$edu_father)
+data_USA$edu_father <- as.factor(ifelse(data_USA$edu_father < 6, "No higher education",
+                            ifelse(data_USA$edu_father >= 8, "I don't know",
+                            "Higher education")))
+table(data_USA$edu_father)
+
+bp_9 <- barplot(table(data_USA$edu_father),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 3500),
+        xaxt = "n",
+        main = "Your level of education (father)",
+        col = c("#FFDAB9", "grey", "#8B668B"))
+
+axis(side = 1, at = bp_9[c(1,2,3)], labels = c("Higher education", "Don't know", "No higher education"))
+
+text(bp_9, 500, table(data_USA$edu_father), col = "black", pos = 3)
+```
+
+
+### 2.11 Education level (mother)
+
+The variable is categorical and initially it contains 9 categories. But they are distributed completely unevenly, so it was necessary to recode. Finally the variables includes three categories: those whose parent B has higher education (2196), those whose parent B doesn't (3246), and those who doesn't know (2583). The last category was quite numerous to be converted into NA, and it wouldn't be very properly to lose quarter of all observations in the regression.
+
+```{r}
+data_USA$edu_mother <- as.factor(data_USA$edu_mother)
+class(data_USA$edu_mother)
+sum(is.na(data_USA$edu_mother))
+table(data_USA$edu_mother)
+
+data_USA$edu_mother <- as.numeric(data_USA$edu_mother)
+data_USA$edu_mother <- as.factor(ifelse(data_USA$edu_mother < 6, "No higher education",
+                            ifelse(data_USA$edu_mother >= 8, "I don't know",
+                            "Higher education")))
+table(data_USA$edu_mother)
+
+bp_10 <- barplot(table(data_USA$edu_mother),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 3500),
+        xaxt = "n",
+        main = "Your level of education (mother)",
+        col = c("#FFDAB9", "grey", "#8B668B"))
+
+axis(side = 1, at = bp_10[c(1,2,3)], labels = c("Higher education", "Don't know", "No higher education"))
+
+text(bp_10, 500, table(data_USA$edu_mother), col = "black", pos = 3)
+```
+
+## 2.1 Draw the distribution of bullying and describe it. 
+
+**Bullying**: The type of this variable is numeric, it contains 422 missing values. Initial data is piled up on the right, so it's left-skewed data. But the variable is encoded from highest value to lowest value, so it makes sense to flip it for more convenient interpretation. 
+
+```{r}
+class(data_USA$bullying)
+data_USA$bullying <- as.numeric(as.character(data_USA$bullying))
+summary(data_USA$bullying)
+class(data_USA$bullying)
+
+hist(data_USA$bullying, 
+     main = "Histogram of bullying level", 
+     xlab = "Level of bullying", col = "#8B668B")
+
+```
+
+Now, after re-cording, it can be seen that there are several observations where the level of bullying is about 12, these observations are potential outliers. There is also a sufficient frequency of observations indicating a very low level of bullying (about 1500 observations).
+
+```{r}
+data_USA$bullying_rev <- 
+  (max(data_USA$bullying, na.rm = T) - data_USA$bullying) + min(data_USA$bullying, na.rm = T)
+
+summary(data_USA$bullying_rev)
+
+hist(data_USA$bullying_rev, 
+     main = "Histogram of bullying level", 
+     xlab = "Level of bullying", col = "#8B668B")
+```
+
+
+
+## 2.2 Decide whether all the variables can be included in the analysis and explain your choice. Recode some variables if needed (remember that all categories should be saturated with data to achieve a proper result of the analysis)
+
+### 2.2.1 Missings
+
+Firstly, let's have a look at missings and their proportions. We can see, that the proportion of missing values does not exceed 8%. But we can still carry out imputation. Since we have not only numeric variables, but also categorical (binary) ones, which are the majority, it is better to use random forest method. kNN method requires converting variables into numeric, that is not convenient for the future analysis, and regression imputation is very slow.
+
+```{r}
+as.data.frame(miss_var_summary(data_USA))
+```
+
+Let's carry out imputation based on random forest.
+
+```{r}
+set.seed(123)
+imputed_missForest <-  missForest(data_USA, maxiter = 3, verbose = TRUE)
+data_USA <- as.data.frame(imputed_missForest$ximp)
+```
+If we compare imputed and original variable "belonging" (numeric) and "owning a phone" (binary), we may notice that the distribution of values is very similar in imputed and original dataset. For belonging mean and median values are pretty close to each other, while the 1st and the 3rd quartile are absolutely the same. It means, that imputation didn't change our data dramatically. 
+
+```{r}
+summary(as.numeric(as.character(data_full$BSBGSSB)))
+summary(data_USA$belonging)
+
+summary(data_full$BSBG05E)
+summary(data_USA$own_phone)
+```
+
+### 2.2.2 Variables selection for the analysis
+
+Following variables can be included in the analysis because all categories are more or less saturated - at least 1000 observations per category:
+
+    - Gender 
+    - Level of belonging
+    - Owning study desk
+    - Owning room
+    - Owning gaming systems
+    - Owning DVDs
+    - Math test
+    - Educational level of parent A
+    - Educational level of parent B
+
+In other factor variables, in particular in binary ones, the category "NO" is not saturated - about 400-500 observations. So we can't use these variables for the analysis.
+
+
+# 3. Draw bivariate plots for bullying and predictors. Describe them. Analyze for potential heteroscedasticity and outliers; for nonlinearity if predictor is numeric.
+
+## 3.1 Bullying and belonging
+
+Correlation: p-value is significant (p-value < 0.05), so we can speak about the correlation between these variables. Correlation is small (- 0.29) and negative: the higher belonging to school, the lower level of bullying. The relation is not linear: from 4th to 6th level of belonging level of bullying almost doesn't change, and than it starts decreasing.
+
+Also, observations are distributed unevenly relative to Y axis. There are observations with very low values of bullying, and with very high values of bullying. This situation may cause heteroscedasticity in the regression. In this case, the bulk of observations are concentrated in the middle of DV scale.
+
+```{r, warning=F}
+cor.test(data_USA$bullying_rev, data_USA$belonging)
+
+ggplot(data = data_USA, 
+       mapping = aes(x = belonging, y = bullying_rev)) + 
+  geom_point(size = 0.9) +
+  geom_smooth()+
+   ggtitle("Relationship b/w belonging to school and bullying")+
+  labs(x = "\nBelonging\n",
+       y = "Bullying")+
+  scale_x_continuous(breaks = seq(0, 13, 1))+
+  scale_y_continuous(breaks = seq(0, 13, 1))+
+  theme_minimal()
+```
+
+## 3.2 Bullying and  gender
+
+T-test: p-value is significant (p-value < 0.05), so we can speak about the association between these variables. Male respondents are likely to have lower level of bullying (~ 5.0) than female respondents (~ 5.2).
+
+```{r}
+t.test(data_USA$bullying_rev ~ data_USA$gender)
+plotmeans(bullying_rev ~ gender, data = data_USA, 
+          xlab = "Gender", ylab = "Bullying",
+          main="Mean Plot with 95% CI")
+```
+
+## 3.3 Bullying and owning study desk
+
+T-test: p-value is significant (< 0.05), so we can speak about the association between these variables. Respondents who have their own study desk are likely to have lower level of bullying (~ 5.1) than respondents who don't have their own study desk (~ 5.3).
+
+```{r}
+t.test(data_USA$bullying_rev ~ data_USA$study_desk)
+plotmeans(bullying_rev ~ study_desk, data = data_USA, 
+          xlab = "Owning study desk", ylab = "Bullying",
+          main="Mean Plot with 95% CI")
+```
+
+## 3.4 Bullying and owning room
+
+T-test: p-value is not significant (> 0.05), so we can't speak about the association between these variables.
+
+```{r}
+t.test(data_USA$bullying_rev ~ data_USA$own_room)
+plotmeans(bullying_rev ~ own_room, data = data_USA, 
+          xlab = "Owning room", ylab = "Bullying",
+          main="Mean Plot with 95% CI")
+```
+
+## 3.5 Bullying and owning gaming system
+
+T-test: p-value is significant (< 0.05), so we can speak about the association between these variables. Respondents who have their own gaming systems are likely to have lower level of bullying (~ 5.1) than respondents who don't have their own gaming systems (~ 5.3).
+
+```{r}
+t.test(data_USA$bullying_rev ~ data_USA$gaming_systems)
+plotmeans(bullying_rev ~ gaming_systems, data = data_USA, 
+          xlab = "Owning gaming systems", ylab = "Bullying",
+          main="Mean Plot with 95% CI")
+```
+
+## 3.6 Bullying and Owning DVDs
+
+T-test: p-value is not significant (> 0.05), so we can't speak about the association between these variables.
+
+```{r}
+t.test(data_USA$bullying_rev ~ data_USA$dvd)
+plotmeans(bullying_rev ~ dvd, data = data_USA, 
+          xlab = "Owning DVDs", ylab = "Bullying",
+          main="Mean Plot with 95% CI")
+```
+
+## 3.7 Bullying and math_test
+
+Correlation: p-value is significant (p-value < 2.2e-16), so we can speak about the correlation between these variables. Correlation is small (-0.13) and negative: the higher results of math test, the lower level of bullying. And relation is almost linear. Also, observations are distributed unevenly relative to Y axis. There are observations with very low values of bullying, and with very high values of bullying. This situation may cause heteroscedasticity in the regression. In this case, the bulk of observations are concentrated in the middle of DV scale.
+
+```{r, warning = F}
+cor.test(data_USA$bullying_rev, data_USA$math_test)
+
+ggplot(data = data_USA, 
+       mapping = aes(x = math_test, y = bullying_rev)) + 
+  geom_point(size = 0.9) +
+  geom_smooth()+
+   ggtitle("Relationship b/w math_test and bullying")+
+  labs(x = "\nmath_test\n",
+       y = "Bullying")+
+  scale_x_continuous(breaks = seq(200, 800, 100))+
+  scale_y_continuous(breaks = seq(1, 13, 1))+
+  theme_minimal()
+```
+
+## 3.8 Bullying and level of parental education (father)
+
+Anova: p-value is significant (p-value < 0.05), so we can speak about the association between these variables. Respondents whose father has higher education show lower level of bullying (5.1) than those whose father doesn't have higher education (5.3). Respondents who don't know about father's education shows lower level of bullying (5.0) than those whose father doesn't have higher education (5.3). 
+
+```{r}
+summary(aov(data_USA$bullying_rev ~ data_USA$edu_father))
+plotmeans(bullying_rev ~ edu_father, data = data_USA, 
+          xlab = "Level of education", ylab = "Bullying",
+          main ="Mean Plot with 95% CI", mean.labels = T, digits = 2, pch=".")
+```
+
+
+## 3.9 Bullying and level of parental education (mother)
+
+Anova: p-value is significant (p-value < 0.05), so we can speak about the association between these variables. Respondents whose mother has higher education show lower level of bullying (5.1) than those whose mother doesn't have higher education (5.3). Respondents who don't know about mother's education shows lower level of bullying (4.9) than those whose mother doesn't have higher education (5.3).  
+
+```{r}
+summary(aov(data_USA$bullying_rev ~ data_USA$edu_mother))
+plotmeans(bullying_rev ~ edu_mother, data = data_USA, 
+          xlab = "Level of education", ylab = "Bullying",
+          main ="Mean Plot with 95% CI", mean.labels = T, digits = 2, pch=".")
+```
+
+
+# 4. Run an OLS regression predicting bullying. Build it via forward selection. Give technical interpretation of the final model.
+
+## 4.1 + Gender
+
+```{r}
+model_1 <- lm(bullying_rev ~ gender, data = data_USA)
+summary(model_1)
+```
+
+## 4.2 + Belonging
+
+```{r}
+model_2 <- lm(bullying_rev ~ gender + belonging, data = data_USA)
+summary(model_2)
+```
+
+## 4.3 + Owning study desk
+
+```{r}
+model_3 <- lm(bullying_rev ~ gender + belonging + study_desk, data = data_USA)
+summary(model_3)
+```
+
+## 4.4 + Owning room
+
+```{r}
+model_4 <- lm(bullying_rev ~ gender + belonging + study_desk + own_room, data = data_USA)
+summary(model_4)
+```
+
+## 4.5 + Owning gaming system
+
+```{r}
+model_5 <- lm(bullying_rev ~ gender + belonging + study_desk + own_room +
+                gaming_systems, data = data_USA)
+summary(model_5)
+```
+
+## 4.6 + Owning DVDs
+
+```{r}
+model_6 <- lm(bullying_rev ~ gender + belonging + study_desk + own_room +
+                gaming_systems + dvd, data = data_USA)
+summary(model_6)
+```
+
+## 4.7 + Math test
+
+```{r}
+model_7 <- lm(bullying_rev ~ gender + belonging + study_desk + own_room +
+                gaming_systems + dvd + math_test, data = data_USA)
+summary(model_7)
+```
+
+## 4.7 + Mother's education
+
+```{r}
+data_USA <- within(data_USA, 
+                   edu_mother <- relevel(edu_mother, ref = "Higher education"))
+
+model_8 <- lm(bullying_rev ~ gender + belonging + study_desk + own_room +
+                gaming_systems + dvd + math_test + edu_mother, data = data_USA)
+summary(model_8)
+```
+
+## 4.9 + Father's education
+
+```{r}
+data_USA <- within(data_USA, 
+                   edu_father <- relevel(edu_father, ref = "Higher education"))
+
+model_9 <- lm(bullying_rev ~ gender + belonging + study_desk + own_room +
+                gaming_systems + dvd + math_test + edu_mother + edu_father, 
+                data = data_USA)
+summary(model_9)
+```
+
+## 4.10 Final OLS model
+
+Model is statistically significant (p-value: < 2.2e-16). Adjusted R-squared is 0.099, therefore the proportion of the variance of the dependent variable explained by the considered model is 10,0%.
+
+1) **Gender**: is a statistically significant predictor. Males compared to females, have lower level of bulling by 0.22.
+
+2) **Belonging**: is a statistically significant predictor. There is a negative trend - an increase in level of belonging to  school by 1 point entails a decrease of bulling level by 0.28 points.
+
+3) **Owning DVDs**: is a statistically significant predictor. Respondents who don't have DVDs, have bulling level lower by 0.14 than respondents who have DVDs at their homes.
+
+4) **Math test**: is a statistically significant predictor. Here I changed the range of the test measurement scale from 200-800 to 2-8, and we will count 100 points per test as 1 unit of measurement. So, there is a negative trend - an increase in the results of math test by 100 points entails a decrease of bulling level by 0.12 points. 
+
+5) **Mother's education**: is a statistically significant predictor. Respondents who don't know anything about their mother's education, have bulling level lower by 0.31 than respondents whose mother have higher education. 
+
+```{r}
+data_USA$math_step_100 <- data_USA$math_test/100
+
+final_OLS <- lm(bullying_rev ~ gender + belonging + dvd + math_step_100 + edu_mother, 
+                data = data_USA)
+summary(final_OLS)
+```
+
+## 4.11  Model diagnostics
+
+### Multicollinearity test
+
+Collinearity check showed the absence of highly correlated variables.
+
+```{r}
+multicollinearity(final_OLS)
+```
+
+### Residuals Vs Leverage (Outliers and leverages).
+
+The null hypothesis for Bonferonni test is that the observation is not an outlier. In this model we have 8 cases that could be outliers and Bonferonni p-value shows that these cases are outliers: Bonferonni p-values are lower than 0.05. Therefore, we reject the null hypothesis that there are no outliers in the model. But Leverage plot suggests that these observations are not truly influential to our regression results.
+
+```{r}
+car::outlierTest(final_OLS)
+plot(final_OLS, which = 4)
+```
+
+### Scale-Location (Heteroscedasticity)
+
+The residuals are not randomly located. Also, ncvTest is significant (p < 0.05), that is a sign of heteroscedasticity.
+
+```{r}
+plot(final_OLS, which = 3)
+car::ncvTest(final_OLS)
+```
+
+### Residuals Vs Fitted 
+
+Red line is close to be horizontal, which indicates a close-to-linear relationship
+
+```{r}
+plot(final_OLS, which = 1)
+```
+
+### Normal QQ 
+
+It's not straight line, so the data isn't normally distributed.
+
+```{r}
+plot(final_OLS, which = 2)
+```
+
+
+# 5. Now run a set of quantile regressions. Decide on the size of your quantile (20-10-5%?). Draw a plot summarizing the results. Interpret the results.
+
+Since we are more interested in those respondents who were exposed to bullying and showed a high level of it, the last quantile should be small in order to capture them specifically. If we look at the number of respondents with a bullying level of 8 or higher, we will see that there are 368 of them, or 4,2% of our sample. But we can also see how the influence of our predictors on the level of bullying differs among those respondents who do not perceive it at all (with low level of bylling). There 1469 respondents with level of bulling 2 and lower, which is about 16%. 
+
+Therefore, I will take the quantile of 15%, 50% and 95%. As I understand it, we don’t need to select quantiles symmetrically, and if necessary, we can evaluate even one selected quantile, right?
+
+
+So, the main differences between results of OLS regression and quantile regressions is associated with the variable "gender" and "math_test" (results of math test). As for other variables, confidential intervals of the OLS intersect with the confidential intervals of the quantiles. So there is no significant difference between them.
+
+But about significant results, we can see following trends and differences:
+
+1) **Gender** is not a statistically significant predictor for bullying for 95% quantile, but it remains significant for another quantiles and OLS.
+
+2) **Math test**: is a statistically significant predictor for 95% quantile. There is a negative trend - an increase in the results of math test by 100 points entails a decrease of bulling level by 0.32 points. It is higher, then OLS has shown.
+
+```{r, warning = F}
+
+nrow(data_USA %>% filter(bullying_rev >= 8))
+nrow(data_USA %>% filter(bullying_rev <= 2))
+
+quantile_15 <- rq(bullying_rev ~ gender + belonging + dvd + math_step_100 + edu_mother, 
+                data = data_USA, tau = 0.15)
+
+quantile_50 <- rq(bullying_rev ~ gender + belonging + dvd + math_step_100 + edu_mother, 
+                data = data_USA, tau = 0.5)
+
+quantile_95 <- rq(bullying_rev ~ gender + belonging + dvd + math_step_100 + edu_mother, 
+                data = data_USA, tau = 0.95)
+
+
+plot_models(final_OLS, quantile_15, quantile_50, quantile_95,
+            show.values = TRUE,
+            m.labels = c("OLS", "QR 15%", "QR 50%", "QR 95%"), 
+            legend.title = "Model type")+
+            ylab("Bullying")
+```
+
+# 6. Create a final regression table containing OLS and all the quantile models (sjPlot). Add robust errors. Compare the results of OLS and quantreg. Does quantile regression outperform OLS? For which groups is the prediction model precise?
+
+## 6.1 Final regression table
+
+The results are similar to what we saw in the plot. For instance, for the 95% quantile gender isn't significant predictor (p = 0.8), while Math test results have higher effect than OLS shows. There some other differences in Beta coefficients, but they are not significant since CI are crossed in these cases: like for gender in OLS and QR 15%, CI at least a little, but they overlap.
+
+```{r, warning = F, message=F}
+library(gtsummary) 
+tbl_merge(
+  tbls = list(
+    tbl_regression(final_OLS) %>% bold_p(),
+    tbl_regression(quantile_15, se = "nid") %>% bold_p(), 
+    tbl_regression(quantile_50, se = "nid") %>% bold_p(),
+    tbl_regression(quantile_95, se = "nid") %>% bold_p()
+  ),
+  tab_spanner = c("OLS", "QR 15%", "QR 50%", "QR 95%")
+)
+
+tab_model(final_OLS, quantile_15, quantile_50, quantile_95, 
+          dv.labels = c("OLS", "QR 20%", "QR 50%", "QR 95%"), show.r2 = F)
+```
+
+## 6.2 Robust errors
+
+Robust errors are a little bit smaller than OLS std errors.
+
+```{r}
+final_OLS_robust <- rlm(bullying_rev ~ gender + belonging + dvd + math_step_100 + edu_mother, 
+                data = data_USA)
+summary(final_OLS_robust)
+summary(final_OLS)
+```
+
+## 6.3 For which groups is the prediction model precise?
+
+OLS correctly estimates the difference between genders for medium level of bulling (CI of OLS are crossing CI for quantile regression), overestimates the difference between genders for with very low and underestimates very high (90%) levels of bullying. (Coefficient is negative, therefore interpretation of overestimation and underestimation is contradicts the picture).
+
+```{r, warning=F}
+library(quantreg)
+q_plot <-  rq(bullying_rev ~ gender + belonging + dvd + math_step_100 + edu_mother, 
+                data = data_USA, 
+        tau = seq(.15, .95, by = 0.10))
+
+summary(q_plot) %>% 
+  plot(c("genderMale"))
+```
+OLS correctly estimates the effect of belonging for the lowest level and high level of bulling (CI of OLS are crossing CI for quantile regression) and high, and underestimates middle (20-40%) levels of bullying. (Coefficient is negative, therefore interpretation of overestimation and underestimation is contradicts the picture).
+
+```{r}
+summary(q_plot) %>% 
+  plot(c("belonging"))
+```
+OLS correctly estimates the effect owning DVD for all levels of bulling (CI of OLS are crossing CI for quantile regression).
+
+```{r}
+summary(q_plot) %>% 
+  plot(c("dvdNo"))
+```
+
+OLS correctly estimates the effect of math test result for almost all levels of bulling (CI of OLS are crossing CI for quantile regression) except from the highest. Here OLS underestimates effect of math test result on bullying. (Coefficient is negative, therefore interpretation of overestimation and underestimation is contradicts the picture).
+
+```{r}
+summary(q_plot) %>% 
+  plot(c("math_step_100"))
+```
+
+OLS correctly estimates the difference between mother's education (compared to "Higher education") for all levels of bulling (CI of OLS are crossing CI for quantile regression).
+
+```{r}
+summary(q_plot) %>% 
+  plot(c("edu_motherI don't know"))
+```
+
+Here also OLS correctly estimates the difference between mother's education (compared to "Higher education") for all levels of bulling (CI of OLS are crossing CI for quantile regression).
+
+```{r}
+summary(q_plot) %>% 
+  plot(c("edu_motherNo higher education"))
+```
+
+
+# 7. Finally, answer the question: Who is more susceptible to bullying in American schools? Are there any factors protecting from bullying?
+
+Thus, OLS regression is more capable of explaining factors of the average values of the level of bullying. At the same time, it does not always do this successfully for high rates of bullying. Like, in general, females compared for males have higher level of bullying, but there is no gender differences on a high level of bullying. Also, good academic performance, in mathematics in particular, reduces the level of bullying. Moreover, owning DVDs increases the level of bullying, perhaps this has something to do with income, because DVDs are already becoming a thing of the past and more modern media are appearing. Perhaps not everyone can afford to upgrade their disk systems to modern ones. But this is only a hypothesis, since income was not included in this study.
+
+In my opinion, according to the research results, there are no direct factors aimed at reducing bullying or protecting from that. It is possible that an increase in academic performance will help reduce the level of bullying, but on the other hand, there may be other factors that cause bullying and were not considered in this study
+
+
