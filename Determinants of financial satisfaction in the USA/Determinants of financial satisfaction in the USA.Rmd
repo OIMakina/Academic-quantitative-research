@@ -1,0 +1,1010 @@
+---
+title: "Determinants of financial satisfaction in the USA"
+author: "Olga Lavrinenko"
+date: "2023-12-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning = F, message = F}
+library(foreign)
+library(haven)
+library(DescTools)
+library(gplots)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(naniar)
+library(mi)
+library(missForest)
+library(caret)
+library(performance)
+library(sjPlot)
+library(quantreg)
+library(MASS)
+library(gtsummary) 
+```
+
+
+# Task 
+
+The project is devoted to the study of predictors of satisfaction with the financial situation (Q50- How satisfied are you with the financial situation of your household?) on WVS data (wave 7: https://www.worldvaludvalusurvey.org/wvsdocumentat ionwv7.jsp)
+
+You yourself formulate a research question and choose the country and the predictors that will help you to answer the RQ. Depending on your framework, these can be different variables. Do not forget to add control variables (like gender). You are not obliged to read the literature for this project, but if you look at some basic work in order to formulate a more meaningful question, it will be excellent.
+
+
+# I. Conceptual framework
+
+## 1. Introduction. Description of the problem and research question
+
+Financial satisfaction can be considered as an important concept that may act as an indicator of well-being in other areas of life. A good state of financial satisfaction can benefit health, longevity, life satisfaction,  social relationships in long term (Lee Yan Xin et.al, Determinants of Financial Satisfaction, 2017). Therefore, it is important to outlining the factors that lead people to individual’s financial well-being. The United States was taken as a case for the study in this work.
+
+**RQ: What are the significant determinants of satisfaction with the financial situation in the USA?**
+
+
+## 2. Hypotheses
+
+**H1:** Household income level is likely to have positive effect on financial satisfaction. It might be explained by the fact that higher income level is resistant to unexpected expenses, hence it have lower vulnerability to financial disturbance. 
+
+**H2:** Age is likely to have positive effect on financial satisfaction. It can be related to individuals’ life cycle differential in health, size of household and wealth. Besides, it can also be explained by less debt and grater assets among the aged.
+
+**H3:** Respondents with savings are likely to have higher level of financial satisfaction compared to respondents without savings. This could also be explained by the fact that having savings provides a financial cushion for respondents and allows them to cope with unexpected financial crises.
+
+**H4:** The fear of losing a job or not finding one is likely to have a negative effect on level of financial satisfaction. This may be due to the fact that an individual who has worries about losing or not finding a job feels uncertainty and instability.
+
+**H5:** Confidence in banks is likely to have a positive effect on level of financial satisfaction. Confidence in banks may reflect the respondent's confidence that he/she has the opportunity to use banking services in case of any financial problems, and the banks themselves are resistant to periods of crisis.
+    
+**H6:** Employed people are likely to have higher level of financial satisfaction than unemployed people. This may be due to the fact that employed people have a regular source of income. However, it is important to test the interaction effect with age and fear of losing one's job. With age, people may already have large savings or passive income that does not require employment. And the fear of losing a job can have a higher effect on the level of financial satisfaction than the fact of employment itself.
+
+**H7:** Married people are likely to have higher level of financial satisfaction than alone individuals.
+
+**H8:** People that don't have children are likely to have higher level of financial satisfaction than people with children.
+    
+Gender and education are also proposed to be included in the model as control variables.
+
+
+## 3. Methodology: Describe the data, selected variables.
+
+The dataset contains 2596 observations among 11 variables + variable "W_WEIGHT".
+
+Dependent variable:
+
+    - Q50  (financial satisfaction) is numeric variable
+
+Demographic predictors:
+
+    - Q260 (gender) is binary variable
+    - Q262 (age) is numeric variable
+    - Q273 (marital status) is categorical variable
+    - Q275 (education) is categorical variable
+    - Q274 (children) is numeric variable
+
+Economic predictors:
+
+    - Q78  (confidence in Banks) is categorical variable
+    - Q142 (worries about losing job or not finding a job) is categorical variable
+    - Q279 (employment status) is categorical variable
+    - Q286 (savings) is categorical variable
+    - Q288 (income) is numeric variable
+
+
+# II Technical part
+
+## 1. Data preparation
+
+**Prepare the data. Correctly determine the types of variables**
+
+### Selection of variables and renaming
+
+```{r}
+setwd("D:/Data Analytics For Politics And Society/II year_Data Analysis Advanced Level (1-2 modules)/Final task")
+data_full_USA <- read.csv("F00013169-WVS_Wave_7_United_States_Csv_v5.0.csv", sep = ";")
+
+data_USA <- data_full_USA[ , c("Q50", "Q78", "Q262", "Q260", "Q273", "Q274",
+                               "Q275", "Q279", "Q142", "Q286", "Q288", "W_WEIGHT")]
+
+lookup <- c(fin_satisfaction = "Q50", conf_bank = "Q78", age = "Q262", gender = "Q260", 
+            marital_status = "Q273",  education ="Q275", emp_status = "Q279", 
+            fear_losing_job ="Q142", children = "Q274", savings = "Q286", 
+            income = "Q288", W_WEIGHT = "W_WEIGHT")
+
+data_USA <- rename(data_USA, all_of(lookup))
+dim(data_USA)
+```
+
+### Missing values
+
+R read the file without detecting NA since they are encoded as negative numbers. Let's convert all negative values into NA.
+
+```{r}
+as.data.frame(miss_var_summary(data_USA))
+table(as.factor(data_USA$fear_losing_job))
+
+data_USA <- data_USA %>% 
+                          mutate(across(everything(),  ~ case_when(.x >=0 ~ .x)))
+as.data.frame(miss_var_summary(data_USA))
+```
+
+### Type of variables
+
+All variables were identified as integers, that it's not correct. Let's fix it.
+
+```{r}
+as.data.frame(sapply(data_USA, class)) %>%
+  setNames("Class")
+
+# Numeric variables
+data_USA$fin_satisfaction <- as.numeric(data_USA$fin_satisfaction)
+data_USA$age <- as.numeric(data_USA$age)
+data_USA$children <- as.numeric(data_USA$children)
+data_USA$income <- as.numeric(data_USA$income)
+data_USA$W_WEIGHT <- as.numeric(data_USA$W_WEIGHT)
+
+# Factor variables
+data_USA$gender <- as.factor(data_USA$gender)
+data_USA$marital_status <- as.factor(data_USA$marital_status)
+data_USA$education <- as.factor(data_USA$education)
+data_USA$conf_bank <- as.factor(data_USA$conf_bank)
+data_USA$emp_status <- as.factor(data_USA$emp_status)
+data_USA$fear_losing_job <- as.factor(data_USA$fear_losing_job)
+data_USA$savings <- as.factor(data_USA$savings)
+
+# Now types of variables are correct
+as.data.frame(sapply(data_USA, class)) %>%
+  setNames("Class")
+```
+
+
+## 2. Description of the distributions and recording
+
+**Evaluate and describe the distributions (not from the point of view of (not) normality, but in a meaningful way: what does the form of distribution tell us about the variable?). Are all the categories saturated with data? Recode the variables if you see the need for this.**
+
+### Satisfaction with financial situation
+
+The data is almost normally distributed. Mostly, respondents' level of satisfaction with their financial situation (FS) is 5-8. But also there are several respondents who are completely unsatisfied with financial situation (151 respondents with level of FS equal to 1). And on the contrary, there are several respondents who are completely satisfied with financial situation (162 respondents with level of FS equal to 10). These groups will be the most interesting when building a quantile regressions.
+
+```{r}
+summary(data_USA$fin_satisfaction)
+table(as.factor(data_USA$fin_satisfaction))
+
+hist(data_USA$fin_satisfaction, 
+     main = "Satisfaction with financial situation", 
+     xlab = "", col = "#0776A0", breaks = 9)
+axis(side=1, at=seq(1, 10, 1), labels=seq(1, 10, 1))
+```
+
+### Age
+
+The number of respondents is uneven by age. Most respondents are 25-35 years old and after the threshold of 70 years the number of respondents decreases. Minimum age is 18, while maximum is 90, mean age in this sample is 43.42 years old.
+
+```{r}
+summary(data_USA$age)
+
+hist(data_USA$age, 
+     main = "Age", 
+     xlab = "", col = "#0776A0")
+axis(side=1, at=seq(20, 100, 10), labels=seq(20, 100, 10))
+```
+
+### Level of income
+
+The data is almost normally distributed. Mostly, respondents' level of income is 4-6. But also there are several respondents whose income level is very low: 250 respondents with level of income lower or equal to 2. At the same time, very few respondents have very high income level: 58 respondents with level of income higher or equal to 9.
+
+```{r}
+summary(data_USA$income)
+table(as.factor(data_USA$income))
+
+hist(data_USA$income, 
+     main = "Income", 
+     xlab = "", col = "#0776A0", breaks = 9)
+axis(side=1, at=seq(1, 10, 1), labels=seq(1, 10, 1))
+```
+
+### Number of children
+
+Mostly, respondents' have one or two children (1029 respondents). There are also quite a lot of respondents who don't have children at all (942 respondents). Large families are much less common. The maximum number of children in a family in this sample is 15.
+
+```{r}
+summary(data_USA$children)
+table(as.factor(data_USA$children))
+
+hist(data_USA$children, 
+     main = "Number of children", 
+     xlab = "", col = "#0776A0", breaks = 15)
+axis(side=1, at=seq(1, 10, 1), labels=seq(1, 10, 1))
+```
+
+I will add a binary version of this variable by dividing the sample into two groups - those who have at least one child and those who do not have children.
+
+```{r}
+data_USA$children_cat <- as.factor(ifelse(data_USA$children == 0,"No children", 
+                                      "Has a child/children"))
+
+table(data_USA$children_cat)
+```
+
+```{r}
+bp_1 <- barplot(table(data_USA$children_cat),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 1800),
+        main = "Do you have a child / children?",
+        col = c("#0776A0", "#C5CFD7"))
+
+text(bp_1, 100, table(data_USA$children_cat), col = "black", pos = 3)
+```
+
+### Gender
+
+This variable is binary, it includes two categories - male and female. The data between categories is distributed almost evenly: 1390 for female and 1206 for male.
+
+```{r}
+table(data_USA$gender)
+data_USA$gender <- as.factor(ifelse(data_USA$gender == "1", "Female", "Male"))
+```
+
+```{r}
+bp_2 <- barplot(table(data_USA$gender),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 1400),
+        main = "Gender",
+        col = c("#F3C594", "#0776A0"))
+
+text(bp_2, 100, table(data_USA$gender), col = "black", pos = 3)
+```
+
+### Marital status
+
+Not all categories are initially saturated: category 4 "Separated" has only 54 observations or category 5 "Widowed" with 84 observations. Therefore, I recoded this variable into binary one with categories "married" and "unmarried". After recoding categories became saturated with the data and data between categories is distributed evenly (1301 observations for "married" and 1295 observations for "unmarried").
+
+```{r}
+table(data_USA$marital_status)
+data_USA$marital_status <- as.factor(ifelse(data_USA$marital_status == "1", 
+                                                  "Married", "Unmarried"))
+```
+
+```{r}
+bp_3 <- barplot(table(data_USA$marital_status),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 1400),
+        main = "Marital status",
+        col = c("#0776A0", "#C5CFD7"))
+
+text(bp_3, 100, table(data_USA$marital_status), col = "black", pos = 3)
+```
+
+### Education
+
+Initially, the variable has 9 categories, but not all categories have a sufficient number of observations for the further analysis; one of the categories (1 - "Primary education") has no observations at all. Therefore, I recoded this variable into binary one with categories "has higher education" and "doesn't have higher education". After recoding categories became saturated with the data. There are 1062 respondents with higher education and 1500 respondents without higher education.
+
+```{r}
+table(data_USA$education)
+data_USA$education <- as.numeric(data_USA$education)
+table(data_USA$education)
+
+data_USA$education <- as.factor(ifelse(data_USA$education >= 6,
+                                             "Higher education", "No higher education"))
+```
+
+```{r}
+bp_4 <- barplot(table(data_USA$education),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 1600),
+        main = "Education",
+        col = c("#0776A0", "#C5CFD7"))
+
+text(bp_4, 100, table(data_USA$education), col = "black", pos = 3)
+```
+
+### Сonfidence in bank
+
+Initially, the variable has 4 categories, but not all categories have a sufficient number of observations for the further analysis, for instance the first category "A great deal" with 120 observations and the last category "None at all" with 338 observations. I recoded this variable into binary one with categories "Confident" and "Non-confident". After recoding categories became saturated with the data. There are 1076 respondents who are confident in banks and 1494 respondents who aren't.
+
+```{r}
+table(data_USA$conf_bank)
+data_USA$conf_bank <- as.factor(ifelse(as.numeric(data_USA$conf_bank) >= 3,
+                                             "Non-confident", "Confident"))
+```
+
+```{r}
+bp_5 <- barplot(table(data_USA$conf_bank),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 1600),
+        main = "Сonfidence in bank",
+        col = c("#0776A0", "#C5CFD7"))
+
+text(bp_5, 100, table(data_USA$conf_bank), col = "black", pos = 3)
+```
+
+### Employment status
+
+Initially, the variable has 8 categories, but not all categories have a sufficient number of observations for the further analysis. Therefore, I again recoded variable into binary one with categories "has paid employment" and "No paid employment". After recoding categories became saturated with the data. Most of the respondents have paid employment (1730) and 845 respondents don't have paid employment.
+
+```{r}
+table(data_USA$emp_status)
+data_USA$emp_status <- 
+  as.factor(ifelse(as.numeric(data_USA$emp_status) <= 3, 
+                   "Has paid employment", "No paid employment"))
+```
+
+```{r}
+bp_6 <- barplot(table(data_USA$emp_status),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 2000),
+        main = "Employment status",
+        col = c("#0776A0", "#C5CFD7"))
+
+text(bp_6, 100, table(data_USA$emp_status), col = "black", pos = 3)
+```
+
+### Fear of losing or not finding a job
+
+Initially, the variable has 4 categories, but not all categories have a sufficient number of observations for the further analysis, for instance the first category "Very much" with 335 observations. Also, the degree of worries is not very important here, therefore I recoded this variable into binary one with categories "Has worries" and "No worries". There are 892 respondents who have worries about losing or not finding a job, and 1681 respondents who don't have any worries.
+
+```{r}
+table(data_USA$fear_losing_job)
+
+data_USA$fear_losing_job <- as.factor(ifelse(as.numeric(data_USA$fear_losing_job) <= 2, 
+                                                   "Has worries", "No worries"))
+```
+
+```{r}
+bp_7 <- barplot(table(data_USA$fear_losing_job),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 1800),
+        main = "Fear of losing or not finding a job",
+        col = c("#C5CFD7", "#0776A0"))
+
+text(bp_7, 50, table(data_USA$fear_losing_job), col = "black", pos = 3)
+```
+
+### Savings
+
+Initially, the variable has 4 categories, but not all categories have a sufficient number of observations for the further analysis, for instance the third category "Spent some savings" with 314 observations and the last one "Spent savings and borrowed money" with 193. Also, it is important in this research to compare those who always save money and others, therefore I recoded this variable into binary one with categories "Save money" and "Doesn't save money". There are 1081 respondents who save money, and 1480 respondents who don't.
+
+```{r}
+table(data_USA$savings)
+
+data_USA$savings <- as.factor(ifelse(data_USA$savings == 1, 
+                                           "Save money", "Doesn't save money"))
+```
+
+```{r}
+bp_8 <- barplot(table(data_USA$savings),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 1600),
+        main = "Savings",
+        col = c("#C5CFD7", "#0776A0"))
+
+text(bp_8, 100, table(data_USA$savings), col = "black", pos = 3)
+```
+
+### Are there censored variables? 
+
+There are no censored variables since for the selected variables there is no time threshold (floor or ceiling) or specific event that might serve as the threshold.
+
+## 3. Missingness
+
+**Evaluate the share of missings. Describe them; what type of missingness is this, you think? Impute missings with any suitable method**.
+
+Variables that represents financial characteristics of responds (income, savings, financial satisfaction, fear of losing a job, etc.) have the highest number of missing values among all variables. At the same time, the percentage of missing values for the variables is lower 2.3%, which in my opinion is quite a bit.
+
+Overall, we might suspect MNAR, because missings depend on variables itself, for instance, income, saving, employment. Questions related to these variables may be sensitive to respondents. But the proportion of these missing values is extremely small, so imputation is likely not significantly distort our sample.
+
+```{r}
+as.data.frame(miss_var_summary(data_USA))
+```
+
+```{r}
+set.seed(123)
+imputed_missForest <-  missForest(data_USA, maxiter = 3, verbose = TRUE)
+data_USA_imp <- as.data.frame(imputed_missForest$ximp)
+```
+If we compare imputed and original variable "income" (numeric) and "savings" (binary), we may notice that the distribution of values is very similar in imputed and original dataset. For "income" mean values are pretty close to each other (5.051 and 5.049), while median, the 1st and the 3rd quantile are absolutely the same. It means, that imputation didn't change our data dramatically. For the binary variable "savings" the distribution of observations by categories also did not change significantly.
+
+```{r}
+summary(as.numeric(as.character(data_USA$income)))
+summary(data_USA_imp$income)
+
+summary(data_USA$savings)
+summary(data_USA_imp$savings)
+```
+
+```{r}
+data_USA <- data_USA_imp
+as.data.frame(miss_var_summary(data_USA))
+```
+
+
+## 4. Variables for weighing
+
+**Read the description of the variables for weighing that are available in the database. Given the purpose of the analysis, which variable is best suited? At all further steps of analysis, use weighing**
+
+From code book: "W_WEIGHT: Numeric variable. This weight is aimed at adjusting some socio-demographic characteristics in the sample population to the distribution of the target population. It has been computed using the marginal distribution of Age, Sex, Education and Region". Since in this study I am considering the variables of age, gender and education, so I will take this variable for weighing.
+
+## 5. Bivariate tests
+
+**Conduct simple bivariate tests of a dependent variable with the independent ones you selected. Describe their results (not only significance, but also strength and direction of the relationship). Visualize where possible.**
+
+### Gender and satisfaction with financial situation
+
+T-test: p-value is significant (p-value < 0.05), so we can speak about the association between these variables. Males are likely to have lower level of financial satisfaction (~ 5.9) than females (~ 6.3).
+
+```{r}
+t.test(data_USA$fin_satisfaction ~ data_USA$gender)
+plotmeans(fin_satisfaction ~ gender, data = data_USA, 
+          xlab = "Gender", ylab = "Level of satisfaction",
+          main = "Mean Plot with 95% CI")
+```
+
+### Age and satisfaction with financial situation
+
+Correlation: p-value is significant (p-value < 0.05), so we can speak about the correlation between these variables. Correlation is small (0.15) and positive: the older the respondent is, the higher level of financial satisfaction. The relation is not linear: up to 50 years old level of financial satisfaction almost doesn't change, and than it starts increasing.
+
+```{r, warning = F, message = FALSE}
+cor.test(data_USA$fin_satisfaction, data_USA$age)
+
+ggplot(data = data_USA, 
+       mapping = aes(x = age, y = fin_satisfaction)) + 
+  geom_point(size = 0.9) +
+  geom_smooth()+
+   ggtitle("Relationship b/w age and satisfaction with financial situation")+
+  labs(x = "\nAge\n",
+       y = "Level of satisfaction")+
+  scale_x_continuous(breaks = seq(20, 90, 10))+
+  scale_y_continuous(breaks = seq(0, 10, 1))+
+  theme_minimal()
+```
+
+### Education and satisfaction with financial situation
+
+T-test: p-value is significant (p-value < 0.05), so we can speak about the association between these variables. People with higher education are likely to have higher level of financial satisfaction (~ 6.5) than people without higher education (~ 5.8).
+
+```{r}
+t.test(data_USA$fin_satisfaction ~ data_USA$education)
+plotmeans(fin_satisfaction ~ education, data = data_USA, 
+          xlab = "Education", ylab = "Level of satisfaction",
+          main = "Mean Plot with 95% CI")
+```
+
+### Marital status and satisfaction with financial situation
+
+T-test: p-value is significant (p-value < 0.05), so we can speak about the association between these variables. Married people are likely to have higher level of financial satisfaction (~ 6.5) than unmarried people (~ 5.6).
+
+```{r}
+t.test(data_USA$fin_satisfaction ~ data_USA$marital_status)
+plotmeans(fin_satisfaction ~ marital_status, data = data_USA, 
+          xlab = "Marital status", ylab = "Level of satisfaction",
+          main = "Mean Plot with 95% CI")
+```
+
+### Number of children
+
+Correlation: p-value isn't significant (p-value > 0.05), so we can not speak about the correlation between these variables.
+
+```{r, warning = F, message = FALSE}
+
+cor.test(data_USA$fin_satisfaction, data_USA$children)
+
+ggplot(data = data_USA, 
+       mapping = aes(x = children, y = fin_satisfaction)) + 
+  geom_point(size = 0.9) +
+  geom_smooth()+
+   ggtitle("Relationship b/w number of children and satisfaction with financial situation")+
+  labs(x = "\nNumber of children\n",
+       y = "Level of satisfaction")+
+  scale_x_continuous(breaks = seq(1, 15, 1))+
+  scale_y_continuous(breaks = seq(0, 10, 1))+
+  theme_minimal()
+```
+
+T-test: p-value is significant (p-value < 0.05), so we can speak about the association between these variables. People without children are likely to have lower level of financial satisfaction (~ 5.9) than people with children (~ 6.2).
+
+```{r}
+t.test(data_USA$fin_satisfaction ~ data_USA$children_cat)
+plotmeans(fin_satisfaction ~ children_cat, data = data_USA, 
+          xlab = "Children", ylab = "Level of satisfaction",
+          main = "Mean Plot with 95% CI")
+```
+
+### Employment status and satisfaction with financial situation
+
+T-test: p-value isn't significant (p-value > 0.05), so we can't speak about the association between these variables.
+
+```{r}
+t.test(data_USA$fin_satisfaction ~ data_USA$emp_status)
+plotmeans(fin_satisfaction ~ emp_status, data = data_USA, 
+          xlab = "Employment status", ylab = "Level of satisfaction",
+          main = "Mean Plot with 95% CI")
+```
+
+### Confidence in banks
+
+T-test: p-value is significant (p-value < 0.05), so we can speak about the association between these variables. People who are not confident in banks are likely to have lower level of financial satisfaction (~ 5.8) than people who are confident in banks (~ 6.5).
+
+```{r}
+t.test(data_USA$fin_satisfaction ~ data_USA$conf_bank)
+plotmeans(fin_satisfaction ~ conf_bank, data = data_USA, 
+          xlab = "Confidence in bank", ylab = "Level of satisfaction",
+          main = "Mean Plot with 95% CI")
+```
+
+### Worries about losing a job and satisfaction with financial situation
+
+T-test: p-value is significant (p-value < 0.05), so we can speak about the association between these variables. People who have worries about losing a job are likely to have lower level of financial satisfaction (~ 5.1) than people who have no worries (~ 6.6).
+
+```{r}
+t.test(data_USA$fin_satisfaction ~ data_USA$fear_losing_job)
+plotmeans(fin_satisfaction ~ fear_losing_job, data = data_USA, 
+          xlab = "Worries about losing a job", ylab = "Level of satisfaction",
+          main = "Mean Plot with 95% CI")
+```
+
+### Savings and satisfaction with financial situation
+
+T-test: p-value is significant (p-value < 0.05), so we can speak about the association between these variables. People who save money are likely to have higher level of financial satisfaction (~ 7.4) than people who don't have savings (~ 5.2).
+
+```{r, warning = F}
+t.test(data_USA$fin_satisfaction ~ data_USA$savings)
+plotmeans(fin_satisfaction ~ savings, data = data_USA, 
+          xlab = "Savings", ylab = "Level of satisfaction",
+          main = "Mean Plot with 95% CI")
+```
+
+### Income level and satisfaction with financial situation
+
+Correlation: p-value is significant (p-value < 0.05), so we can speak about the correlation between these variables. Correlation is moderate (0.43) and positive: the higher level of income, the higher level of financial satisfaction. The relation is almost linear.
+
+```{r, warning = F, message = F}
+cor.test(data_USA$fin_satisfaction, data_USA$income)
+
+ggplot(data = data_USA, 
+       mapping = aes(x = income, y = fin_satisfaction)) + 
+  geom_point(size = 0.9) +
+  geom_smooth()+
+   ggtitle("Relationship b/w income and satisfaction with financial situation")+
+  labs(x = "\nIncome level\n",
+       y = "Level of satisfaction")+
+  scale_x_continuous(breaks = seq(0, 10, 1))+
+  scale_y_continuous(breaks = seq(0, 10, 1))+
+  theme_minimal()
+```
+
+
+## 6. Regression models (OLS and quantile regression models)
+
+**Build a quantile regression model explaining the satisfaction with the financial situation. Choose the necessary number of quantiles based on what you want to discover about financial satisfaction. Use the Forward Selection strategy, adding variables to the model one at one. Give an interpretation of the results: significance, direction, power of relationships.**
+
+
+## 6.1 OLS (Forward Selection strategy)
+
+Firstly, I will build OLS regression using forward selection strategy, then I will diagnose final OLS model, and finally, I'll build quantile regression models.
+
+### + Gender
+
+We added gender as a predictor to the model. So, model_1 is statistically significant (p-value: < 0.05) as well as added predictor (p-value: < 0.05). Adjusted R-squared is very low (0.003), therefore the proportion of the variance of the dependent variable explained by the considered model is 0,3%.
+
+Gender: males have the level of financial satisfaction lower by 0.3 compared to females.
+
+```{r}
+model_1_OLS <- lm(fin_satisfaction ~ gender, data = data_USA, 
+                  weights = W_WEIGHT)
+summary(model_1_OLS)
+```
+
+### + Age
+
+We added age as a predictor to the model. So, model_2 is statistically significant (p-value: < 0.05) as well as added predictor (p-value: < 0.05). But previously added predictor - gender, became insignificant. Adjusted R-squared is low (0.04), therefore the proportion of the variance of the dependent variable explained by the considered model is 4%.
+
+Age: we can see positive trend - an increase in age by 1 year entails an increase of financial satisfaction by 0.03 points.
+
+```{r}
+model_2_OLS <- lm(fin_satisfaction ~ gender + age , data = data_USA, 
+                  weights = W_WEIGHT)
+summary(model_2_OLS)
+```
+
+### + Education
+
+We added education as a predictor to the model. So, model_3 is statistically significant (p-value: < 0.05) as well as added predictor (p-value: < 0.05). Gender is still insignificant. Adjusted R-squared is low (0.05), therefore the proportion of the variance of the dependent variable explained by the considered model is 5%.
+
+Education: people without higher education have the level of financial satisfaction lower by 0.69 compared to people with higher education.
+
+```{r}
+model_3_OLS <- lm(fin_satisfaction ~ gender + age + education, data = data_USA, 
+                  weights = W_WEIGHT)
+summary(model_3_OLS)
+```
+
+### + Marital status
+
+We added marital status as a predictor to the model. So, model_4 is statistically significant (p-value: < 0.05) as well as added predictor (p-value: < 0.05). Gender is still insignificant. Adjusted R-squared is low (0.07), therefore the proportion of the variance of the dependent variable explained by the considered model is 7%.
+
+Marital status: unmarried people have the level of financial satisfaction lower by 0.62 compared to married people.
+
+```{r}
+model_4_OLS <- lm(fin_satisfaction ~ gender + age + education +
+                    marital_status, data = data_USA, 
+                  weights = W_WEIGHT)
+summary(model_4_OLS)
+```
+
+### + Children
+
+We added having children as a predictor to the model. So, model_5 is statistically significant (p-value: < 0.05) but the added predictor isn't (p-value: > 0.05). Gender also is still insignificant.
+
+```{r}
+model_5_OLS <- lm(fin_satisfaction ~ gender + age + education +
+                    marital_status + children_cat, data = data_USA, 
+                  weights = W_WEIGHT)
+summary(model_5_OLS)
+```
+
+### + Employment status
+
+We added employment status as a predictor to the model. So, model_6 is statistically significant (p-value: < 0.05) but the added predictor isn't (p-value: > 0.05). Gender, having children are still insignificant.
+
+```{r}
+model_6_OLS <- lm(fin_satisfaction ~ gender + age + education +
+                    marital_status + children_cat + emp_status, data = data_USA, 
+                  weights = W_WEIGHT)
+summary(model_6_OLS)
+```
+
+### + Confidence in banks
+
+We added confidence in banks as a predictor to the model. So, model_7 is statistically significant (p-value: < 0.05) as well as added predictor (p-value: < 0.05). Gender, having children and employments status are still insignificant. Adjusted R-squared is low (0.08), therefore the proportion of the variance of the dependent variable explained by the considered model is 8%.
+
+Confidence in banks: people who are not confident in banks have the level of financial satisfaction lower by 0.55 compared to people who are confident in banks.
+
+```{r}
+model_7_OLS <- lm(fin_satisfaction ~ gender + age + education +
+                    marital_status + children_cat + emp_status +
+                    conf_bank, data = data_USA, 
+                  weights = W_WEIGHT)
+summary(model_7_OLS)
+```
+
+### + Worries about losing a job
+
+We added worries about losing a job as a predictor to the model. Model_8 is statistically significant (p-value: < 0.05) as well as added predictor (p-value: < 0.05). Gender, having children and employments status are still insignificant. Adjusted R-squared became a little bit higher (0.14), therefore the proportion of the variance of the dependent variable explained by the considered model is 14%.
+
+Worries about losing a job: people who don't worry about losing a job have the level of financial satisfaction higher by 1.31 compared to people who have worries about it.
+
+```{r}
+model_8_OLS <- lm(fin_satisfaction ~ gender + age + education +
+                    marital_status + children_cat + emp_status +
+                    conf_bank + fear_losing_job, data = data_USA, 
+                  weights = W_WEIGHT)
+summary(model_8_OLS)
+```
+
+### + Savings
+
+We added savings as a predictor to the model. Model_9 is statistically significant (p-value: < 0.05) as well as added predictor (p-value: < 0.05). Gender, having children and employments status are still insignificant. Adjusted R-squared became higher (0.28), therefore the proportion of the variance of the dependent variable explained by the considered model is 28%.
+
+Savings: people who save money have the level of financial satisfaction higher by 1.9 compared to people who don't save money.
+
+```{r}
+model_9_OLS <- lm(fin_satisfaction ~ gender + age + education +
+                    marital_status + children_cat + emp_status +
+                    conf_bank + fear_losing_job + savings, data = data_USA, 
+                  weights = W_WEIGHT)
+summary(model_9_OLS)
+```
+
+### + Income level
+
+We added income as a predictor to the model. So, model_10 is statistically significant (p-value: < 0.05) as well as added predictor (p-value: < 0.05). Gender, having children are still insignificant. Employment status became significant that is a sign of multicollinearity between this variable and income. People without paid employment have level of financial satisfaction higher by 0.20 compared to people with paid employment. At the same time, education became insignificant predictor.
+
+Adjusted R-squared became higher (0.34), therefore the proportion of the variance of the dependent variable explained by the considered model is 34%.
+
+Income: we can see positive trend - an increase in income by 1 point entails an increase of financial satisfaction by 0.35 points.
+
+```{r}
+model_10_OLS <- lm(fin_satisfaction ~ gender + age + education +
+                    marital_status + children_cat + emp_status +
+                    conf_bank + fear_losing_job + savings + income, data = data_USA, 
+                  weights = W_WEIGHT)
+summary(model_10_OLS)
+```
+
+
+### Final OLS
+
+Final model is statistically significant (p-value: < 2.2e-16). Adjusted R-squared is 0.34, therefore the proportion of the variance of the dependent variable explained by the considered model is 34%.
+
+1) **Age**: positive trend - an increase in age by 1 year entails an increase of financial satisfaction by 0.01 points.
+
+2) **Marital status**: unmarried people have the level of financial satisfaction lower by 0.23 compared to married people.
+
+3) **Employment status**: people without paid employment have level of financial satisfaction higher by 0.21 compared to people with paid employment. Since this predictor became significant only after addition "income" to the model, I'll check interaction effect and multicollinearity
+
+4) **Confidence in banks**: people who are not confident in banks have the level of financial satisfaction lower by 0.27 compared to people who are confident in banks.
+
+5) **Fear of losing a job**: people who don't worry about losing a job have the level of financial satisfaction higher by 0.87 compared to people who have worries about it.
+
+6) **Savings**: people who save money have the level of financial satisfaction higher by 1.5 compared to people who don't save money.
+
+7) **Income**: positive trend - an increase in income by 1 point entails an increase of financial satisfaction by 0.35 points.
+
+```{r}
+model_final_OLS <- lm(fin_satisfaction ~ age + marital_status + emp_status +
+                    conf_bank + fear_losing_job + savings + income,
+                    data = data_USA, weights = W_WEIGHT)
+summary(model_final_OLS)
+```
+
+### Interaction between employment status and income
+
+Interaction effect isn't significant at the level of p-value = 0.05, it is significant only at the level of p-value = 0.1. So, in this model we will consider interaction effect as insignificant. 
+
+```{r}
+model_final_OLS_int <- lm(fin_satisfaction ~ age + marital_status +
+                    conf_bank + fear_losing_job + savings + income*emp_status,
+                    data = data_USA, weights = W_WEIGHT)
+summary(model_final_OLS_int)
+```
+
+
+## 6.2. Diagnose the model
+
+### Multicollinearity test
+
+Multicollinearity check showed the absence of highly correlated variables even for employment status and income.
+
+```{r, warning = F}
+multicollinearity(model_final_OLS)
+```
+
+### Residuals Vs Leverage (Outliers and leverages)
+
+The null hypothesis for Bonferonni test is that the observation is not an outlier. In this model we have 2 cases that could be outliers and Bonferonni p-value shows that these cases are outliers: Bonferonni p-values are lower than 0.05. Therefore, we reject the null hypothesis that there are no outliers in the model. But Leverage plot suggests that these observations are not truly influential to our regression results.
+
+```{r}
+car::outlierTest(model_final_OLS)
+plot(model_final_OLS, which = 4)
+```
+
+### Scale-Location (Heteroscedasticity)
+
+The residuals are not randomly located. Also, ncvTest is significant (p < 0.05), that is a sign of heteroscedasticity.
+
+```{r}
+plot(model_final_OLS, which = 3)
+car::ncvTest(model_final_OLS)
+```
+
+### Residuals Vs Fitted
+
+Red line is close to be horizontal, which indicates a close-to-linear relationship.
+
+```{r}
+plot(model_final_OLS, which = 1)
+```
+
+### Normal QQ
+
+It's not straight line, so the data isn't normally distributed.
+
+```{r}
+plot(model_final_OLS, which = 2)
+```
+
+
+## 6.3 Quantile regression models
+
+In this research we are more interested in those respondents who are completely unsatisfied with financial situation (level of FS is equal or lower 2) and those respondents who are very satisfied with financial situation (level of FS is equal or higher 9).
+
+If we look at the number of respondents with a financial satisfaction level of 2 or lower, we will see that there are 242 of them, or 9.3% of our sample. On the contrary, number of respondents with a financial satisfaction level of 9 or higher is 399, or 15.4% of our sample. 
+
+Therefore, I will take the quantile of 10%, 50% and 85%.
+
+```{r}
+nrow(data_USA %>% filter(fin_satisfaction <= 2))
+nrow(data_USA %>% filter(fin_satisfaction <= 2))*100/nrow(data_USA)
+
+nrow(data_USA %>% filter(fin_satisfaction >= 9))
+nrow(data_USA %>% filter(fin_satisfaction >= 9))*100/nrow(data_USA)
+```
+
+```{r}
+set.seed(123)
+
+quantile_10 <- rq(fin_satisfaction ~ age + marital_status + emp_status +
+                    conf_bank + fear_losing_job + savings + income,
+                    data = data_USA, weights = W_WEIGHT, tau = 0.10)
+
+quantile_50 <- rq(fin_satisfaction ~ age + marital_status + emp_status +
+                    conf_bank + fear_losing_job + savings + income,
+                    data = data_USA, weights = W_WEIGHT, tau = 0.50)
+
+quantile_85 <- rq(fin_satisfaction ~ age + marital_status + emp_status +
+                    conf_bank + fear_losing_job + savings + income,
+                    data = data_USA, weights = W_WEIGHT, tau = 0.85)
+```
+
+```{r}
+plot_models(model_final_OLS, quantile_10, quantile_50, quantile_85,
+            show.values = TRUE,
+            m.labels = c("OLS", "QR 10%", "QR 50%", "QR 85%"), 
+            legend.title = "Model type") +
+            ylab("Level of satisfaction")
+```
+
+So, the main difference between results of OLS regression and quantile regressions is associated with the variable "savings": OLS results are different from results of 10% quantile regression and 85% quantile regression - CI are not crossing in these cases. There is one more significant differences between OLS results and 85% quantile results in effect if income (CI are also not crossing).
+
+Also, we can see following trends and differences:
+
+1) **Age** is not a statistically significant predictor of financial satisfaction for 10% quantile, but it remains significant for another quantiles and OLS. And effect of age is the same when it is significant - an increase in age by 1 year entails an increase of financial satisfaction by 0.01.
+
+2) **Marital status**: is a statistically significant predictor only for OLS. In quantile regressions marital status isn't a significant predictor.
+
+3) **Employment status** is a statistically significant predictor only for OLS and 85% quantile regression model. And effect of this predictor is different for these models: in OLS people without paid employment have level of financial satisfaction higher by 0.21 compared to people with paid employment. While in 85% quantile regression people without paid employment have level of financial satisfaction higher by 0.42 compared to people with paid employment.
+
+4) **Confidence in banks**: is not a statistically significant predictor of financial satisfaction for 10% quantile, but it remains significant for another quantiles and OLS. Effect of being confident in banks is pretty the same for OLS and 85% quantile regression model, but for 50% quantile regression effect is higher: people who are not confident in banks have the level of financial satisfaction lower by 0.35 compared to people who are confident in banks.
+
+5) **Fear of losing a job**: is a statistically significant predictor of financial satisfaction for all of quantile regressions and OLS. Effect of having worries of losing a job is pretty the same for OLS, 10% and 50% quantile regression model, but for 85% quantile regression effect is lower: people who don't worry about losing a job have the level of financial satisfaction higher by 0.35 compared to people who have worries about it.
+
+6) **Savings**: is a statistically significant predictor of financial satisfaction for all of quantile regressions and OLS. Effect of having worries of losing a job is pretty the same for OLS, 50% and 85% quantile regression model, but for 10% quantile regression effect is higher: people who save money have the level of financial satisfaction higher by 2.4 compared to people who don't save money.
+
+7) **Income**: is a statistically significant predictor of financial satisfaction for all of quantile regressions and OLS. Effect of having worries of losing a job is pretty the same for 10% and 50% quantile regression model, but for OLS and 85% quantile regression effect is lower: for OLS an increase in income by 1 point entails an increase of financial satisfaction by 0.35 points; for 85% quantile regression an increase in income by 1 point entails an increase of financial satisfaction by 0.21 points.
+
+```{r, warning = F}
+library(gtsummary) 
+tbl_merge(
+  tbls = list(
+    tbl_regression(model_final_OLS) %>% bold_p(),
+    tbl_regression(quantile_10, se = "nid") %>% bold_p(), 
+    tbl_regression(quantile_50, se = "nid") %>% bold_p(),
+    tbl_regression(quantile_85, se = "nid") %>% bold_p()),
+  tab_spanner = c("OLS", "QR 10%", "QR 50%", "QR 85%"))
+```
+
+
+## 6.4 Interactions and non-linearity
+
+**Add at least one interaction effect. Check the numeric variables for the linearity of the effect. Add a nonlinear effect if necessary**.
+
+### Non-linearity check
+
+The relation between age and financial satisfaction is not linear: up to 50 years old level of financial satisfaction decreases a little, and than it starts increasing sharply.
+
+```{r}
+ggplot(data_USA, aes (x = age, y = fin_satisfaction)) + 
+ geom_point(size = 0.8) +
+ stat_smooth(method='lm', formula = y ~ poly (x,2)) + 
+ xlab('Age') +
+ ylab('Level of satisfaction') +
+ theme_light()
+```
+
+The relation between income and financial satisfaction is almost linear.
+
+```{r}
+ggplot(data_USA, aes (x = income, y = fin_satisfaction)) + 
+ geom_point(size = 0.8) +
+ stat_smooth(method='lm', formula = y ~ poly (x,2)) + 
+ xlab('Income') +
+ ylab('Level of satisfaction') +
+ theme_light()
+```
+
+### Interaction effects and visualization
+
+I added interaction between income and savings, where I expect that effect of income on financial satisfaction is likely to be lower for people who save money, since savings allows people to be more independent on their income.
+
+This interaction effect is significant for OLS model, 50% and 85% quantile regression models
+
+For OLS: effect of income on financial satisfaction is lower by 0.11 for people who save money compared to those who don't.
+
+For 50%: effect of income on financial satisfaction is lower by 0.24 for people who save money compared to those who don't.
+
+For 85%: effect of income on financial satisfaction is lower by 0.19 for people who save money compared to those who don't.
+    
+I also added interaction effect between having children and worries about losing a job.
+
+This interaction effect is significant only for 85% quantile regression model: people who worry about losing a job but have children are more (by 0.53) satisfied with financial situation compared to people who worry about losing a job but don't have children at all.
+
+This may be due to the fact that 85% represents people who are most satisfied with their financial situation. And if we remember the positive nonlinear relationship between age and satisfaction with financial situation, we can assume that this quantile includes mainly age respondents. And for them, having children can become support in case of job loss.
+
+```{r, message = F, warning = F}
+set.seed(123)
+
+model_OLS_int <- lm(fin_satisfaction ~  poly(age,2) + marital_status + emp_status +
+                       fear_losing_job*children_cat + conf_bank + income*savings,
+                      data = data_USA, weights = W_WEIGHT)
+
+quantile_10_int <- rq(fin_satisfaction ~ poly(age,2) + marital_status + emp_status +
+                       fear_losing_job*children_cat + conf_bank + income*savings,
+                    data = data_USA, weights = W_WEIGHT, tau = 0.10)
+
+quantile_50_int <- rq(fin_satisfaction ~ poly(age,2) + marital_status + emp_status +
+                       fear_losing_job*children_cat + conf_bank + income*savings,
+                    data = data_USA, weights = W_WEIGHT, tau = 0.50)
+
+quantile_85_int <- rq(fin_satisfaction ~ poly(age,2) + marital_status + emp_status +
+                       fear_losing_job*children_cat + conf_bank + income*savings,
+                    data = data_USA, weights = W_WEIGHT, tau = 0.85)
+
+tbl_merge(
+  tbls = list(
+    tbl_regression(model_OLS_int) %>% bold_p(),
+    tbl_regression(quantile_10_int, se = "nid") %>% bold_p(), 
+    tbl_regression(quantile_50_int, se = "nid") %>% bold_p(),
+    tbl_regression(quantile_85_int, se = "nid") %>% bold_p()),
+  tab_spanner = c("OLS", "QR 10%", "QR 50%", "QR 85%"))
+```
+
+### Visualization
+
+```{r, warning = F, message = F}
+sjPlot::plot_model(model_OLS_int, type = "pred", terms = c("income", "savings"),
+                   colors = c("#4F555A", "#0776A0"), title = "Predicted values of FS for OLS") +
+        theme_light()
+```
+
+```{r, warning = F, message = F}
+sjPlot::plot_model(quantile_50_int, type = "pred", terms = c("income", "savings"),
+                   colors = c("#474B5A", "#0776A0"), title = "Predicted values of FS for 50%") +
+        theme_light()
+```
+
+```{r, warning = F, message = F}
+sjPlot::plot_model(quantile_85_int, type = "pred", terms = c("income", "savings"),
+                   colors = c("#474B5A", "#0776A0"), title = "Predicted values of FS for 85%") +
+        theme_light()
+```
+
+```{r, warning = F, message = F}
+sjPlot::plot_model(quantile_85_int, type = "pred", terms = c("fear_losing_job", "children_cat"),
+                   colors = c("#0776A0", "#474B5A"), title = "Predicted values of FS for 85%") +
+        theme_light()
+```
+
+
+## 7. Conceptual interpretation of the results of the analysis. 
+
+**Have your hypotheses confirmed? How will you answer your question? If desired, you can also include a section with reflection on the methods: what is useful, what is difficult to use, etc.**
+
+**RQ** was the following: What are the significant determinants of satisfaction with the financial situation in the USA? 
+
+So, among **demographic factors** age and marital status can be considered as significant determinants of satisfaction with the financial situation in the USA. **Economic factors** like employment status, confidence in banks, worried about losing or not finding a job, savings and household income level have a significant effect on satisfaction with the financial situation for Americans.
+
+**Confirmed hypothesis**:
+
+**H1:** Household income level is likely to have positive effect on financial satisfaction. It might be explained by the fact that higher income level is resistant to unexpected expenses, hence it have lower vulnerability to financial disturbance. 
+
+**H2:** Age is likely to have positive effect on financial satisfaction. It can be related to individuals’ life cycle differential in health, size of household and wealth. Besides, it can also be explained by less debt and grater assets among the aged.
+
+**H3:** Respondents with savings are likely to have higher level of financial satisfaction compared to respondents without savings. This could also be explained by the fact that having savings provides a financial cushion for respondents and allows them to cope with unexpected financial crises.
+
+**H4:** The fear of losing a job or not finding one is likely to have a negative effect on level of financial satisfaction. This may be due to the fact that an individual who has worries about losing or not finding a job feels uncertainty and instability.
+
+**H5:** Confidence in banks is likely to have a positive effect on level of financial satisfaction. Confidence in banks may reflect the respondent's confidence that he/she has the opportunity to use banking services in case of any financial problems, and the banks themselves are resistant to periods of crisis.
+    
+**H7:** Married people are likely to have higher level of financial satisfaction than alone individuals.
+    
+**Confirmed effect but with opposite direction**:    
+    
+**H6:** Employed people are likely to have higher level of financial satisfaction than unemployed people. But analysis has shown that people without paid employment have level of financial satisfaction higher compared to people with paid employment.  
+    
+**Didn't confirmed**:
+
+**H8:** People that don't have children are likely to have higher level of financial satisfaction than people with children. Actually, there is no effects of having children itself on level of financial satisfaction.
+    
+But **these conclusions and effects in several cases are different for respondents with extremely low level of financial satisfaction or vice versa for respondents with really high level of financial satisfaction**. For instance, employment status is a statistically significant predictor only for OLS and 85% quantile regression model, that include people with high level of financial satisfaction. Or age is not a statistically significant predictor of financial satisfaction for 10% quantile, that represent people with low level of financial satisfaction. And we saw it from the plot - up to 50 years old there are no relation between age and financial satisfaction.
+
+And also interaction effects. Having children was insignificant predictor for OLS, but became significant for respondents with really high level of financial satisfaction (85% quantile) in interaction with worries of losing a job. Or savings didn't changed the strength of relation between income and financial satisfaction for respondents with extremely low level of financial satisfaction (10% quantile), but decreased it in OLS, 50% and 85% quantile regression models. 
+
+Therefore, a separate study (using quantile regressions) of factors for respondents with different levels of financial situation allowed to find out new determinants of financial situation and effects of interaction of these factors.
