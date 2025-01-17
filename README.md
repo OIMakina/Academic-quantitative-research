@@ -1,2 +1,2 @@
 # Academic-quantitative-research
-This repository contains my academic quantitative research conducted using regression analysis (linear and generalized linear models).
+This repository contains my academic quantitative research conducted using regression analysis (linear and generalized linear models). In addition, in each study I conducted descriptive analysis of the variables and bivariate analysis to examine the relationship between two variables simultaneously. Each study includes graphs illustrating the distribution of observations and the relationships between variables.
