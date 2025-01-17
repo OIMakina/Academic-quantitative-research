@@ -1,0 +1,1277 @@
+---
+title: "Participation in the elections on the local level"
+author: "Olga Lavrinenko"
+date: "2023-03-25"
+output:
+  html_document:
+    df_print: paged
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r, include=FALSE}
+options(tinytex.verbose = TRUE)
+```
+
+```{r include = T, results = 'hide', warning = F, message = F}
+library(car)
+library(dplyr)
+library(effects) 
+library(foreign)
+library(haven)
+library(ISLR)
+library(ggplot2)
+library(gplots)
+library(ggpubr)
+library(lm.beta)
+library(QuantPsyc)
+library(readr)
+library(rpart)
+library(rpart.plot)
+library(sjPlot)
+library(tidyverse)
+```
+
+# I. Introduction – what’s your idea
+
+Basically, electoral research **focuses on political technology aspects**: what factors in what way influence the choice of voters; what exactly is valued and ignored; what information do voters “peck” on; how to conduct election campaigns; how to conduct agitation and propaganda; what type (status, education, age, gender, work experience, pedigree) of a candidate is accepted by voters (Dangasurengiin O., Amarzhargalyn N. Political and psychological behavior of Mongolian voters, 2019).
+
+At the same time, the question of what factors influence the **regular participation** of the voter in elections remains poorly covered. At the same time, knowledge of these factors may help develop a strategy to involve the population in the political process, increase voter turnout and achieve the most representative election results.
+
+In this regard, the research question of this study is: "What factors increase the chances of regular participation in elections at the local level in Mongolia?"
+
+# II. Data description
+
+## What country you choose; how many cases are there. 
+
+**! Check that there is a variance in the answers for the outcome variable: if the majority of the individuals always attend the elections, it will be very hard to predict something. The best cases are those closer to 50/50 balance.**
+ 
+Since the work requires a logical regression, the country was chosen according to the proportional distribution of answers to the question about participation in elections. In Mongolia, the distribution of responses by code book seems to be one of the most appropriate (52.3% for the "always" category and 47.7% for the other categories). Of course, after removing the missing values, the percentages may change, but at the same time, the initial distribution suggests that the balance will remain.
+
+At the moment, the database with predictors consists of 1638 observations and 29 variables.
+ 
+```{r}
+# setwd("D:/Data Analytics For Politics And Society/Data analysis (2-3 modules)/Project 2")
+WVS_EVS <- read_spss('ZA7505_v4-0-01.sav')
+
+Mongolia_WVS_EVS <- WVS_EVS[WVS_EVS$cntry == 496, 
+                            c("cntry_AN", "E263", "X001", "X003R2", "X025A_01", 
+                              "F034", "X007", "A009", "A170", "X047_WVS7", 
+                              "A004", "E023", "E025", "E026", "E027", "E028", 
+                              "E037", "E069_07", "E069_11", "E069_01", "E069_02", 
+                              "E069_04", "E069_05", "E069_06", "E069_08", "E069_12", 
+                              "E069_13", "E069_14", "E069_17")]
+
+dim(Mongolia_WVS_EVS)
+table(Mongolia_WVS_EVS$E263)
+```
+**! Regarding the missings: make sure you don’t lose many cases when getting rid of NA’s. Like, deleting half of the dataset is not a good idea. It’s better not to use predictors with many missing values.**
+
+Mostly, the variables E069_ have missing values, but since we need them for factor analysis, I did not include in the subset only those that contain a distinctively large number of missing values.
+
+After removing the missing values, we lost about 500 observations and we are left with 1134 rows.
+
+```{r}
+Mongolia_WVS_EVS <- na.omit(Mongolia_WVS_EVS)
+dim(Mongolia_WVS_EVS)
+```
+
+# III. Hypotheses
+
+1) **Gender** is likely not to affect the chances of regular participation in elections. 
+
+2) The **age** of 30-49 years is likely to increase the chances of regular participation in elections compared to the age of up to 30 years
+
+3) Having a *tertiary education** is likely to increase the chances of regular participation in elections compared to secondary education and below
+
+4) **Political interest** is likely to increase the chances of regular participation in elections
+
+5) **Confidence in government** is likely to increase the chances of regular participating in elections
+
+6) **Participation in boycotts** is likely to reduce the chances of regular participation in elections
+
+7) **Joining unofficial strikes** is likely to reduce the chances of regular participation in elections
+
+
+# IV. Analysis with the technical interpretation of the results
+
+## 1. Preparation: 
+
+**1.1. Create a binary variable “participation in the elections”, dividing individuals into 2 categories: those who always participate in the elections and the others. Double-check that your final categories are close to balance.**
+
+The balance shifted after removing the missing values, и the ratios between the categories became 39 % vs. 61%, but both categories are still saturated with observations.
+
+```{r}
+Mongolia_WVS_EVS$vote <- Mongolia_WVS_EVS$E263
+table(Mongolia_WVS_EVS$vote)
+
+Mongolia_WVS_EVS$vote <- as.factor(ifelse(Mongolia_WVS_EVS$vote >= 2, 0, 1))
+table(Mongolia_WVS_EVS$vote)
+
+bp_1 <- barplot(table(Mongolia_WVS_EVS$vote),
+        beside = T,
+        xlab = "Do you ALWAYS participate in elections?",
+        ylim = c(0, 1000),
+        xaxt = "n",
+        main = "Barplot of participation in the elections",
+        col = c("#B0E0E6", "#BDDA85"))
+
+text(bp_1, 50, table(Mongolia_WVS_EVS$vote), col = "black", pos = 3)
+
+axis(side = 1, at = bp_1[c(1:2)],
+     labels = c("No", "Yes"),
+     cex.axis = 0.75)
+```
+
+**1.2. Choose the predictors**
+
+1. Socio-economic factors (8 predictors): gender (X001), age (X003R2), education (X025A_01), marital status (X007), religion (F034), health status (A009), life satisfaction (A170), income (X047_WVS7).
+
+2. Political attitudes (5 predictors): political importance (A004), interest in politics (E023), government responsibilities (E037), confidence in government (E069_11), confidence in parliament (E069_07).
+
+3. Political activity (4 predictors): signing a petition (E025), joining boycotts (E026), attending lawful/peaceful demonstrations (E027), joining unofficial strikes (E028).
+
+
+**1.3. Discover the properties of your data. What can you say about the distributions? Character and number of missings? Recode everything that needs to be recoded. Specify the correct types of the variables.**
+
+**1. Gender**: variable type is categorical, values are distributed evenly: 594 for "female" and 540 for "male".
+
+```{r}
+table(Mongolia_WVS_EVS$X001)
+Mongolia_WVS_EVS$sex <- as.factor(ifelse(Mongolia_WVS_EVS$X001 == 1, "Male", 
+                                         "Female"))
+table(Mongolia_WVS_EVS$sex)
+
+bp_2 <- barplot(table(Mongolia_WVS_EVS$sex),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 800),
+        main = "Barplot of gender",
+        col = c("#FFE4B5", "#B0E0E6"))
+text(bp_2, -1.4, table(Mongolia_WVS_EVS$sex), col = "black", pos = 3)
+```
+
+**2. Age**: variable type is categorical, values are distributed quite evenly.
+
+```{r} 
+table(Mongolia_WVS_EVS$X003R2)
+Mongolia_WVS_EVS$age <- as.factor(ifelse(Mongolia_WVS_EVS$X003R2 == 1, "15 - 29",
+                                  ifelse(Mongolia_WVS_EVS$X003R2 == 2, "30 - 49", 
+                                  "55 and more")))
+table(Mongolia_WVS_EVS$age)
+
+
+bp_3 <- barplot(table(Mongolia_WVS_EVS$age),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 600),
+        main = "Barplot of age",
+        col = c("#B0E0E6", "#D1B8E6", "#FFE4B5"))
+
+text(bp_3, -1.4, table(Mongolia_WVS_EVS$age), col = "black", pos = 3)
+```
+
+**3. Education**: variable type is categorical, values are distributed unevenly: very few observations for categories 0 - 2 (at most 73). Therefore, we need to recode: I decided to combine into two categories - those who have a tertiary education and those who have a lower level of education.
+
+```{r}
+table(Mongolia_WVS_EVS$X025A_01)
+Mongolia_WVS_EVS$education <- as.factor(ifelse(Mongolia_WVS_EVS$X025A_01 >= 5, 
+                                               "Tertiary education", 
+                                               "Secondary education or less"))
+table(Mongolia_WVS_EVS$education)
+
+bp_4 <- barplot(table(Mongolia_WVS_EVS$education),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 700),
+        main = "Barplot of education",
+        col = c("#FFE4B5", "#D1B8E6"))
+text(bp_4, -1.4, table(Mongolia_WVS_EVS$education), col = "black", pos = 3)
+```
+
+**4. Marital status**: variable type is categorical, values are distributed unevenly: very few observations for categories 3 - 5, (at most 59 observations). Therefore, we need to recode: I decided to combine into three categories - married, living together as married, single.
+
+```{r}
+table(Mongolia_WVS_EVS$X007)
+Mongolia_WVS_EVS$marital_st <- as.factor(ifelse(Mongolia_WVS_EVS$X007 == 1, 
+                                                "Married",
+                                         ifelse(Mongolia_WVS_EVS$X007 == 2, 
+                                                "Living together",
+                                                "Single")))
+table(Mongolia_WVS_EVS$marital_st)
+
+bp_5 <- barplot(table(Mongolia_WVS_EVS$marital_st),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 600),
+        main = "Barplot of marital status",
+        col = c("#BDDA85", "#FFE4B5", "#BCD2EE"))
+text(bp_5, -1.4, table(Mongolia_WVS_EVS$marital_st), col = "black", pos = 3)
+```
+
+**5. Religious status**: variable type is categorical, values are distributed unevenly: very few observations for category 3 (151 observations). Therefore, we need to recode: I decided to combine into two categories - religious person, not a religious person.
+
+```{r}
+table(Mongolia_WVS_EVS$F034)
+Mongolia_WVS_EVS$religion <- as.factor(ifelse(Mongolia_WVS_EVS$F034 == 1, 
+                                              "Religious person",
+                                              "Not a religious person"))
+table(Mongolia_WVS_EVS$religion)
+
+bp_6 <- barplot(table(Mongolia_WVS_EVS$religion),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 800),
+        main = "Barplot of religion status",
+        col = c("#BCD2EE", "#FFE4B5"))
+text(bp_6, -1.4, table(Mongolia_WVS_EVS$religion), col = "black", pos = 3)
+
+```
+
+**6. Health status**: variable type is categorical, values are distributed unevenly: very few observations for categories 1, 4, 5 (at most 179). Therefore, we need to recode: I decided to combine into two categories - good health and others - not so good health.
+
+```{r}
+table(Mongolia_WVS_EVS$A009) 
+Mongolia_WVS_EVS$health <- as.factor(ifelse(Mongolia_WVS_EVS$A009 <= 2, "Good", 
+                                            "Not so good"))
+table(Mongolia_WVS_EVS$health)
+
+bp_7 <- barplot(table(Mongolia_WVS_EVS$health),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 800),
+        main = "Barplot of health status",
+        col = c("#BDDA85", "#BCD2EE"))
+text(bp_7, -1.4, table(Mongolia_WVS_EVS$health), col = "black", pos = 3)
+```
+
+**7. Life satisfaction**: variable type is numeric. Data is almost symmetrical and close to a normal distribution. Minimal value is 1, while maximum is 10, and mean is 6.4.
+
+```{r}
+Mongolia_WVS_EVS$life_sat <- as.numeric(Mongolia_WVS_EVS$A170)
+summary(Mongolia_WVS_EVS$life_sat)
+hist(Mongolia_WVS_EVS$life_sat,
+     main = "Histogram of life satisfaction in Mongolia", 
+     xlab = "Life satisfaction", col = "#BCD2EE",
+     breaks = 10)
+```
+
+**8. Income**: variable type is numeric. Data is almost symmetrical and close to a normal distribution. Minimal value is 1, while maximum is 10, and mean is 5.5.
+
+```{r}
+Mongolia_WVS_EVS$income <- as.numeric(Mongolia_WVS_EVS$X047_WVS7)
+summary(Mongolia_WVS_EVS$income)
+hist(Mongolia_WVS_EVS$income,
+     main = "Histogram of income in Mongolia", 
+     xlab = "Scale of income", col = "#FFE4B5",
+     breaks = 10)
+```
+
+**9. Importance of politics**: variable type is categorical, values are distributed unevenly: very few observations for categories 1 and 4 (at most 156). Therefore, we need to recode: I decided to combine into two categories: important and not important.
+
+```{r}
+table(Mongolia_WVS_EVS$A004)
+Mongolia_WVS_EVS$pol_importance <- as.factor(ifelse(Mongolia_WVS_EVS$A004 <= 2, 
+                                                    "Important",
+                                                    "Not important"))
+table(Mongolia_WVS_EVS$pol_importance)
+
+bp_8 <- barplot(table(Mongolia_WVS_EVS$pol_importance),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 800),
+        main = "Barplot: importance of politics",
+        col = c("#BDDA85", "#D1B8E6"))
+text(bp_8, -1.4, table(Mongolia_WVS_EVS$pol_importance), col = "black", pos = 3)
+```
+
+**10. Interest in politics**: variable type is categorical, values are distributed unevenly: very few observations for categories 1 and 4 (at most 172). Therefore, we need to recode: I decided to combine into two categories: interested and not interested.
+
+```{r}
+table(Mongolia_WVS_EVS$E023)
+Mongolia_WVS_EVS$pol_interest <- as.factor(ifelse(Mongolia_WVS_EVS$E023 <= 2, 
+                                                  "Interested",
+                                                  "Not interested"))
+table(Mongolia_WVS_EVS$pol_interest)
+
+bp_9 <- barplot(table(Mongolia_WVS_EVS$pol_interest),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 800),
+        main = "Barplot: interest in politics",
+        col = c("#FFE4B5", "#BCD2EE"))
+text(bp_9, -1.4, table(Mongolia_WVS_EVS$pol_interest), col = "black", pos = 3)
+```
+
+**11. Government responsibility**: variable type is numeric. data is piled up on the left, so it's right-skewed data. Minimal value is 1, while maximum is 10, and mean is 4.7.
+
+```{r}
+# from "People should take more responsibility" to 
+#      "The government should take more responsibility"
+
+Mongolia_WVS_EVS$government_resp <- as.numeric(Mongolia_WVS_EVS$E037)
+summary(Mongolia_WVS_EVS$government_resp)
+hist(Mongolia_WVS_EVS$government_resp,
+     main = "Histogram of government responsibility", 
+     xlab = "Government responsibility", col = "#BDDA85",
+     breaks = 10)
+```
+
+**12. Confidence in government**: variable type is categorical, values are distributed unevenly: very few observations for category 1 (114 observations). Therefore, we need to recode: I decided to combine into two categories: confident and not confident.
+
+```{r}
+table(Mongolia_WVS_EVS$E069_11)
+Mongolia_WVS_EVS$government_conf <- as.factor(ifelse(Mongolia_WVS_EVS$E069_11 <= 2, 
+                                                     "Confident",
+                                                     "Not confident"))
+table(Mongolia_WVS_EVS$government_conf)
+
+bp_10 <- barplot(table(Mongolia_WVS_EVS$government_conf),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 800),
+        main = "Barplot: confidence in government",
+        col = c("#FFE4B5", "#D1B8E6"))
+text(bp_10, -1.4, table(Mongolia_WVS_EVS$government_conf), col = "black", pos = 3)
+```
+
+**13. Confidence in parliament**: variable type is categorical, values are distributed unevenly: very few observations for category 1 (89 observations). Therefore, we need to recode: I decided to combine into two categories: confident and not confident. Even though the observations are still unevenly distributed, the category "Confident" is now saturated with observations (327 observations).
+
+```{r}
+table(Mongolia_WVS_EVS$E069_07)
+Mongolia_WVS_EVS$parliament_conf <- as.factor(ifelse(Mongolia_WVS_EVS$E069_07 <= 2, 
+                                                     "Confident",
+                                                     "Not confident"))
+table(Mongolia_WVS_EVS$parliament_conf)
+
+bp_11 <- barplot(table(Mongolia_WVS_EVS$parliament_conf),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 1000),
+        main = "Barplot: confidence in parliament",
+        col = c("#FFE4B5", "#D1B8E6"))
+text(bp_11, -1.4, table(Mongolia_WVS_EVS$parliament_conf), col = "black", pos = 3)
+```
+
+**14. Signing a petition**: variable type is categorical, values are distributed unevenly: very few observations for category 3 (192 observations). Therefore, I decided to increase the saturation of the categories and combine them into two categories: those who have an experience in signing petitions, and those who don't have.
+
+```{r}
+table(Mongolia_WVS_EVS$E025)
+Mongolia_WVS_EVS$petition <- as.factor(ifelse(Mongolia_WVS_EVS$E025 >= 2, 
+                                              "No experience",       
+                                              "Have an experience"))
+table(Mongolia_WVS_EVS$petition)
+  
+bp_12 <- barplot(table(Mongolia_WVS_EVS$petition),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 800),
+        main = "Political action: signing a petition",
+        col = c("#BDDA85", "#FFE4B5"))
+text(bp_12, -1.4, table(Mongolia_WVS_EVS$petition), col = "black", pos = 3)
+```
+
+**15. Joining boycotts**: variable type is categorical, values are distributed unevenly. Therefore, I decided to increase the saturation of the categories and combine them into two categories: those who have done or might do this actions, and those who would never do it.
+
+```{r}
+table(Mongolia_WVS_EVS$E026)
+Mongolia_WVS_EVS$boycott <- as.factor(ifelse(Mongolia_WVS_EVS$E026 <=2, 
+                                             "Have done or might",      
+                                             "Would never do"))
+table(Mongolia_WVS_EVS$boycott)
+  
+bp_13 <- barplot(table(Mongolia_WVS_EVS$boycott),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 800),
+        main = "Political action: joining boycotts",
+        col = c("#BDDA85", "#FFE4B5"))
+text(bp_13, -1.4, table(Mongolia_WVS_EVS$boycott), col = "black", pos = 3)
+```
+
+**16. Attending lawful/peaceful demonstrations**: variable type is categorical, values are distributed unevenly. Therefore, I decided to increase the saturation of the categories and combine them into two categories: those who have done or might do this actions, and those who would never do it.
+
+```{r}
+table(Mongolia_WVS_EVS$E027)
+Mongolia_WVS_EVS$lawful_demonstration <- as.factor(ifelse(Mongolia_WVS_EVS$E027 <= 2, 
+                                                          "Have done or might",       
+                                                          "Would never do"))
+table(Mongolia_WVS_EVS$lawful_demonstration)
+  
+bp_14 <- barplot(table(Mongolia_WVS_EVS$lawful_demonstration),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 1000),
+        main = "Political action: attending lawful/peaceful demonstrations",
+        col = c("#BDDA85", "#FFE4B5"))
+text(bp_14, -1.4, table(Mongolia_WVS_EVS$lawful_demonstration), col = "black", pos = 3)
+```
+
+**17. Joining unofficial strikes**: variable type is categorical, values are distributed unevenly: very few observations for category 1 (165 observations). Therefore, I decided to increase the saturation of the categories and combine them into two categories: those who have done or might do this actions, and those who would never do it.
+
+```{r}
+table(Mongolia_WVS_EVS$E028)
+Mongolia_WVS_EVS$strike <- as.factor(ifelse(Mongolia_WVS_EVS$E028 <=2, 
+                                            "Have done or might",       
+                                            "Would never do"))
+table(Mongolia_WVS_EVS$strike)
+  
+bp_15 <- barplot(table(Mongolia_WVS_EVS$strike),
+        beside = T,
+        ylab = "Frequency",
+        ylim = c(0, 800),
+        main = "Political action: joining unofficial strikes",
+        col = c("#BDDA85", "#FFE4B5"))
+text(bp_15, -1.4, table(Mongolia_WVS_EVS$strike), col = "black", pos = 3)
+```
+
+
+## 2. Descriptive statistics.
+
+**Before running the analysis, let’s discover the nature of the relations in our data – among the outcome and the predictors. Describe simple bivariate tests. What relationships have you discovered? Interpret the results – not only significance, but also the type of the effect.** 
+
+**1. Gender**: P-value is not significant (p-value > 0.05), so the null hypothesis can be accepted: there is no association between gender and participation in elections.
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$sex)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$sex)$stdres
+```
+
+**2. Age**: p-value is significant (p-value < 0.05), X-squared 22.34 is greater than the critical value 5.991 according to the table for the df = 2, so the null hypothesis can be rejected (that there is no association between variables) and we can speak about the association between age and participation in elections. 
+
+Also we can see significant (> |1.96|) and positive st.res. (3.47) for category "55 and more" and regular participation in elections (1): we observe more cases than we can expect. 
+
+So, those respondents, who are 55 years and more are more likely to participate in elections always, while those respondents, who are 15-29 years old are less likely to do it: (we can see significant (> |1.96|) and negative st.res. (-4.27) for category "15 - 29" and category "1" - always participate in elections.
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$age)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$age)$stdres
+```
+
+**3. Education**: p-value is significant (p-value < 0.05), X-squared 7.30 is greater than the critical value 3.841 according to the table for the df = 1, so the null hypothesis can be rejected (that there is no association between variables) and we can speak about the association between education and participation in elections. 
+
+Also we can see significant (> |1.96|) and positive st.res. (2.76) for category "Tertiary education" and regular participation in elections (1): we observe more cases than we can expect. 
+
+So, those respondents, who have got tertiary education are more likely to participate in elections always, while those respondents, who have got secondary education or less are less likely to do it: (we can see significant (> |1.96|) and negative st.res. (-2.76) for category "Secondary education or less" and category "1" - always participate in elections.
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$education)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$education)$stdres
+```
+
+**4. Marital status**: p-value is not significant (p-value > 0.05), so the null hypothesis can be accepted: there is no association between marital status and participation in elections.
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$marital_st)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$marital_st)$stdres
+```
+
+**5. Religion**: p-value is significant (p-value < 0.05), X-squared 51.25 is greater than the critical value 3.841 according to the table for the df = 1, so the null hypothesis can be rejected (that there is no association between variables) and we can speak about the association between religion status and participation in elections. 
+
+Also we can see significant (> |1.96|) and positive st.res. (7.22) for category "Religious person" and regular participation in elections (1): we observe more cases than we can expect. 
+
+So, those respondents, who are religious are more likely to participate in elections always, while those respondents, who are not religious are less likely to do it: (we can see significant (> |1.96|) and negative st.res. (-7.22) for category "Not a religious" and category "1" - always participate in elections.
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$religion)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$religion)$stdres
+```
+
+**6. Health status**: P-value is not significant (p-value > 0.05), so the null hypothesis can be accepted: there is no association between health status and participation in elections.
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$health)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$health)$stdres
+```
+
+
+**7. Life satisfaction**: P-value is significant (p-value < 2.2e-16), so we can speak about the association between these variables. There are differences in life satisfaction between respondents who always participate in the elections and those who not.
+
+For those who always participate in the elections mean level of life satisfaction is 6.70, and for those who not always or never voted mean level of life satisfaction is 6.20. And also differences in level of life satisfaction are significant between two groups because their confidence intervals don't cross each other.
+
+```{r}
+t.test(Mongolia_WVS_EVS$life_sat ~ Mongolia_WVS_EVS$vote)
+plotmeans(life_sat ~ vote, data = Mongolia_WVS_EVS, 
+          xlab = "Do you ALWAYS participate in elections?", 
+          ylab = "Life satisfaction",
+          main="Mean Plot with 95% CI")
+```
+
+**8. Income**: P-value is significant (p-value < 0.05), so we can speak about the association between these variables. There are differences in income between respondents who always participate in the elections and those who not.
+
+For those who always participate in the elections mean level of income is 5.38, and for those who not always or never voted mean level of income is 5.63. And also confidence intervals almost don't cross each other.
+
+```{r}
+t.test(Mongolia_WVS_EVS$income ~ Mongolia_WVS_EVS$vote)
+plotmeans(income ~ vote, data = Mongolia_WVS_EVS, 
+          xlab = "Do you ALWAYS participate in elections?", ylab = "Income",
+          main="Mean Plot with 95% CI")
+```
+
+**9. Political importance**: P-value is not significant (p-value > 0.05), so the null hypothesis can be accepted: there is no association between the importance of politics and participation in elections.
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$pol_importance)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$pol_importance)$stdres
+```
+
+**10. Political interest**: p-value is significant (p-value < 0.05), X-squared 26.77 is greater than the critical value 3.841 according to the table for the df = 1, so the null hypothesis can be rejected (that there is no association between variables) and we can speak about the association between political interest and participation in elections. 
+
+Also we can see significant (> |1.96|) and positive st.res. (5.23) for category "Interested" and regular participation in elections (1): we observe more cases than we can expect. 
+
+So, those respondents, who are interested in politics are more likely to participate in elections always, while those respondents, who are not interested in this sphere are less likely to do it: (we can see significant (> |1.96|) and negative st.res. (-5.23) for category "Not interested" and category "1" - always participate in elections.
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$pol_interest)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$pol_interest)$stdres
+```
+
+**11. Government responsibility**: P-value is significant (p-value < 0.05), so we can speak about the association between these variables. There are differences in attitudes toward government responsibility between respondents who always participate in the elections and those who not.
+
+For those who always participate in the elections mean level of government responsibility is 4.37, and for those who not always or never voted mean level government responsibility is 4.88. And also differences in level of government responsibility are significant between two groups because their confidence intervals don't cross each other.
+
+```{r}
+t.test(Mongolia_WVS_EVS$government_resp ~ Mongolia_WVS_EVS$vote)
+plotmeans(government_resp ~ vote, data = Mongolia_WVS_EVS, 
+          xlab = "Do you ALWAYS participate in elections?", 
+          ylab = "Government responsibility",
+          main="Mean Plot with 95% CI")
+```
+
+**12. Confidence: Government**: p-value is significant (p-value < 0.05), X-squared 5.65 is greater than the critical value 3.841 according to the table for the df = 1, so the null hypothesis can be rejected (that there is no association between variables) and we can speak about the association between confidence in government and participation in elections. 
+
+Also we can see significant (> |1.96|) and positive st.res. (2.44) for category "Confident" and regular participation in elections (1): we observe more cases than we can expect. 
+
+So, those respondents, who are confident in government are more likely to participate in elections always, while those respondents, who are not confident in government are less likely to do it: (we can see significant (> |1.96|) and negative st.res. (-2.44) for category "Not confident" and category "1" - always participate in elections.
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$government_conf)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$government_conf)$stdres
+```
+
+**13. Confidence: Parliament**: P-value is not significant (p-value > 0.05), so the null hypothesis can be accepted: there is no association between the confidence in parliament and participation in elections.
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$parliament_conf)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$parliament_conf)$stdres
+```
+
+**14. Political action: signing a petition**: p-value is significant (p-value < 0.05), X-squared 19.56 is greater than the critical value 3.841 according to the table for the df = 1, so the null hypothesis can be rejected (that there is no association between variables) and we can speak about the association between signing petitions and participation in elections. 
+
+Also we can see significant (> |1.96|) and positive st.res. (4.48) for category "Have experience" and regular participation in elections (1): we observe more cases than we can expect. 
+
+So, those respondents, who have already got experience in signing petitions are more likely to participate in elections always, while those respondents, who have no experience in it are less likely to do it: (we can see significant (> |1.96|) and negative st.res. (-4.48) for category "No experience".
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$petition)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$petition)$stdres
+```
+
+**15. Political action: joining boycotts**: p-value is significant (p-value < 0.05), X-squared 10.93 is greater than the critical value 3.841 according to the table for the df = 1, so the null hypothesis can be rejected (that there is no association between variables) and we can speak about the association between joining boycotts and participation in elections. 
+
+Also we can see significant (> |1.96|) and positive st.res. (3.37) for category "Would never do" and regular participation in elections (1): we observe more cases than we can expect. 
+
+So, those respondents, who would never join boycotts are more likely to participate in elections always, while those respondents, who have already joined or might join boycotts are less likely to do it: (we can see significant (> |1.96|) and negative st.res. (-3.37) for category "Have done or might" and category "1" - always participate in elections.
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$boycott)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$boycott)$stdres
+```
+
+**16. Political action: attending lawful/peaceful demonstrations**: P-value is not significant (p-value > 0.05), so the null hypothesis can be accepted: there is no association between the attending lawful/peaceful demonstrations and participation in elections.
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$lawful_demonstration)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$lawful_demonstration)$stdres
+```
+
+**17. Political action: joining unofficial strikes**: P-value is not significant (p-value > 0.05), so the null hypothesis can be accepted: there is no association between joining unofficial strikes and participation in elections. 
+
+```{r}
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$strike)
+chisq.test(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$strike)$stdres
+```
+
+
+## 3. Logistic regression analysis. 
+
+**Describe every step you make! Interpret all the results! It’s better to give excessive interpretations than not to interpret enough. Tables without interpretations are not assessed.**
+
+**3.1. Multiple logistic regression. Choose either forwards or backwards method. Choose the best model through model comparison. Interpretation of the final model: odds ratios, predicted probabilities, marginal effects**
+
+
+I will first add those predictors whose association with voting was significant. And then the rest of the predictors: if they become significant, it will be a sign of multicolleniality.
+
+# Model 1: Age
+
+In this model variable "age" is statistically significant since the p-values are less than 0.05. AIC of this model is 1502.5 (it will be useful to us when comparing with the next model).
+
+**Coefficients**
+Based on the coefficients in the table, we can say about the direction of the predictor on the chances of regular voting, but we cannot say how much the predictor increases or decreases these chances. Thus, age categories have a positive direction - an increase in the age category leads to an increase in the chances of regular voting compared to category "15 - 29" (0.49 for age 30-49, and 0.78 for age 55+).
+
+**Odds ratios**
+
+1) We observe that the odds of regular voting are increased by a factor of 1.63 for age 30 - 49, it means the chances 30 - 49 years-old respondents regular voting rises by 63% compared to 15-29 years old respondents.
+
+2) Also, we can see that the odds of regular voting are increased by a factor of 2.18 for age 55 and more, it means the chances 55+ years-old respondents regular voting rises by 118% compared to 15-29 years old respondents.
+
+```{r}
+model_1 <-glm(vote ~ age, data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_1)
+exp(model_1$coefficients)
+```
+
+# Model 2: + Education
+
+In this model variable "education" is statistically significant since the p-value is less than 0.05. AIC of this model is 1494.8.
+
+**Coefficients**
+Tertiary education has a positive direction - it increase the chances of regular voting compared to category "secondary or less" (0.40).
+
+**Odds ratios**
+We observe that the odds of regular voting are increased by a factor of 1.49 for respondents with tertiary education, it means the chances of these respondents regular voting rises by 49% compared to respondents with secondary education or less.
+
+```{r}
+model_2 <-glm(vote ~ age + education, data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_2)
+exp(model_2$coefficients)
+```
+
+# Model 3: + Religion
+
+In this model variable "religion" is statistically significant since the p-value is less than 0.05. AIC of this model is 1449.5.
+
+**Coefficients**
+Being a religious person has a positive direction - it increase the chances of regular voting compared to category "not a religious person" (0.88).
+
+**Odds ratios**
+We observe that the odds of regular voting are increased by a factor of 2.41 for religious respondents, it means the chances of these respondents regular voting rises by 141% compared to not religious respondents.
+
+```{r}
+model_3 <-glm(vote ~ age + education + religion, data = Mongolia_WVS_EVS, 
+              family = "binomial")
+summary(model_3)
+exp(model_3$coefficients)
+```
+
+# Model 4: + Life satisfaction
+
+In this model variable "life satisfaction" is statistically significant since the p-value is less than 0.05. AIC of this model is 1436.6.
+
+**Coefficients**
+Life satisfaction has a positive direction - as it increases, the chances of regular voting increase as well (0.13).
+
+**Odds ratios**
+We observe that the odds of regular voting are multiplied by a factor of 1.14 for every point increase of life satisfaction level. It means the chances of regular voting increase by 14% every time level of life satisfaction becomes higher.
+
+```{r}
+model_4 <-glm(vote ~ age + education + religion + life_sat, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_4)
+exp(model_4$coefficients)
+```
+
+# Model 5: + Income
+
+In this model variable "income" is statistically significant since the p-value is less than 0.05. AIC of this model is 1431.
+
+**Coefficients**
+Income has a negative direction - as it increases, the chances of regular voting decrease (-0.10).
+
+**Odds ratios**
+We observe that the odds of regular voting are multiplied by a factor of 0.91 for every point increase of income level. It means the chances of regular voting decrease by 9% every time level of income becomes higher.
+
+```{r}
+model_5 <-glm(vote ~ age + education + religion + life_sat + income, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_5)
+exp(model_5$coefficients)
+```
+
+# Model 6: + Political interest
+
+In this model variable "political interest" is statistically significant since the p-value is less than 0.05. AIC of this model is 1420.3.
+
+**Coefficients**
+Having an interest in politic has a positive direction - it increase the chances of regular voting compared to category "not interested" (0.49).
+
+**Odds ratios**
+We observe that the odds of regular voting are increased by a factor of 1.63 for respondents who are interested in politics, it means the chances of these respondents regular voting rises by 63% compared to respondents without the interest in this sphere.
+
+```{r}
+Mongolia_WVS_EVS <- within(Mongolia_WVS_EVS, 
+                           pol_interest <- relevel(pol_interest, 
+                                                   ref = "Not interested"))
+
+model_6 <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest, data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_6)
+exp(model_6$coefficients)
+```
+
+# Model 7: + Government responsibility
+
+In this model variable "government responsibility" is statistically significant since the p-value is less than 0.05. AIC of this model is 1414.7.
+
+**Coefficients**
+Attitudes towards government responsibility have a negative direction - as it increases, the chances of regular voting decrease (-0.07).
+
+**Odds ratios**
+We observe that the odds of regular voting are multiplied by a factor of 0.93 for every point increase of government responsibility. It means the chances of regular voting decrease by 7% every time level of government responsibility becomes higher.
+
+```{r}
+model_7 <-glm(vote ~ age + education + religion + life_sat + income +
+              pol_interest + government_resp, data = Mongolia_WVS_EVS, 
+              family = "binomial")
+summary(model_7)
+exp(model_7$coefficients)
+```
+
+# Model 8: + Confidence in government
+
+In this model variable "confidence in government" is statistically significant since the p-value is less than 0.05. AIC of this model is 1415.2.
+
+**Coefficients**
+Being confident in politics has a positive direction - it increase the chances of regular voting compared to category "not confident" (0.33).
+
+**Odds ratios**
+We observe that the odds of regular voting are increased by a factor of 1.39 for respondents who are confident in government, it means the chances of these respondents regular voting rises by 39% compared to respondents without the confidence in government.
+
+```{r}
+Mongolia_WVS_EVS <- within(Mongolia_WVS_EVS, 
+                           government_conf <- relevel(government_conf, 
+                                                      ref = "Not confident"))
+
+model_8 <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_resp + government_conf, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_8)
+exp(model_8$coefficients)
+```
+
+# Model 9: + Signing a petition
+
+In this model variable "signing a petition" is statistically significant since the p-value is less than 0.05. AIC of this model is 1393.7.
+
+**Coefficients**
+Having experience in signing a petition has a positive direction - it increase the chances of regular voting compared to category "no experience" (0.58).
+
+**Odds ratios**
+We observe that the odds of regular voting are increased by a factor of 1.78 for respondents who have already signed a petition, it means the chances of these respondents regular voting rises by 78% compared to respondents without experience in signing a petition.
+
+```{r}
+Mongolia_WVS_EVS <- within(Mongolia_WVS_EVS, 
+                           petition <- relevel(petition, 
+                                               ref = "No experience"))
+
+model_9 <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_resp + government_conf + petition, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_9)
+exp(model_9$coefficients)
+```
+
+# Model 10: + Joining boycotts
+
+In this model variable "joining boycotts" is statistically significant since the p-value is less than 0.05. AIC of this model is 1376.8.
+
+**Coefficients**
+Joining boycotts has a negative direction - it decrease the chances of regular voting compared to category "would never do" (-0.65).
+
+**Odds ratios**
+We observe that the odds of regular voting are decreased by a factor of 0.52 for respondents who have already joined boycotts or might join, it means the chances of these respondents regular voting decries by 48% compared to respondents who would never do it.
+
+```{r}
+Mongolia_WVS_EVS <- within(Mongolia_WVS_EVS, 
+                           boycott <- relevel(boycott, ref = "Would never do"))
+
+
+model_10 <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_resp + government_conf + petition +
+                 boycott, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_10)
+exp(model_10$coefficients)
+```
+
+# Model 11: + Joining unofficial strikes
+
+In this model variable "joining unofficial strikes" is not statistically significant since the p-value is more than 0.05. AIC of this model is 1378.8 (it became higher).
+
+```{r}
+model_11 <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_resp + government_conf + petition +
+                 boycott + strike, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_11)
+exp(model_11$coefficients)
+```
+
+# Model 12: + Sex
+
+In this model variable "sex" is not statistically significant since the p-value is more than 0.05. AIC of this model is 1380.4 (it again became higher).
+
+```{r}
+model_12 <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_resp + government_conf + petition +
+                 boycott + strike + sex, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_12)
+exp(model_12$coefficients)
+```
+
+# Model 13: + Marital status
+
+In this model variable "marital status" is not statistically significant since the p-value is more than 0.05. AIC of this model is 1384 (it became higher).
+
+```{r}
+model_13 <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_resp + government_conf + petition +
+                 boycott + strike + sex + marital_st, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_13)
+exp(model_13$coefficients)
+```
+
+# Model 14: + Health status
+
+In this model variable "health status" is not statistically significant since the p-value is more than 0.05. AIC of this model is 1386 (it became higher).
+
+```{r}
+model_14 <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_resp + government_conf + petition +
+                 boycott + strike + sex + marital_st + health, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_14)
+exp(model_14$coefficients)
+```
+
+# Model 15: + Political importance
+
+In this model variable "political importance" is not statistically significant since the p-value is more than 0.05. AIC of this model is 1386 (it became higher).
+
+```{r}
+model_15 <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_resp + government_conf + petition +
+                 boycott + strike + sex + marital_st + health + pol_importance, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_15)
+exp(model_15$coefficients)
+```
+
+# Model 16: + Confidence in parliament
+
+In this model variable "confidence in parliament" is statistically significant since the p-value is less than 0.05. AIC of this model is 1376.8. But the paired test showed no relationship between this variable and the regularity of participation in elections. Therefore, most likely - this is a sign of multicolleniarity. And this is true, if we remove the variable "government_conf" from the model, the variable "parliament_conf" will lose its significance. I'll add this interaction to the "interaction effect" section.
+
+```{r}
+model_16 <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_resp + government_conf + petition +
+                 boycott + strike + sex + marital_st + health + pol_importance +
+                 parliament_conf, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_16)
+exp(model_16$coefficients)
+```
+
+# Model 17: + Attending lawful/peaceful demonstrations
+
+In this model variable "attending lawful/peaceful demonstrations" is not statistically significant since the p-value is more than 0.05. AIC of this model is 1378.
+
+```{r}
+model_17 <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_resp + government_conf + petition +
+                 boycott + strike + sex + marital_st + health + pol_importance +
+                 parliament_conf + lawful_demonstration, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_17)
+exp(model_17$coefficients)
+```
+
+# Final  model
+
+In this model all variables are are statistically significant since the p-values are less than 0.05. AIC of this model is the lowest - 1376.8.
+
+**Coefficients**
+
+Such variables as age, education, religion, life satisfaction, political interest, confidence in government, experience in signing petitions have a positive direction - they increase the chances of regular voting.
+
+And the rest - income, level of government responsibility, and joining boycotts have a negative direction - they decrease the chances of regular voting.
+
+**Odds ratios**
+
+1.1) The chances **30 - 49 years-old** respondents regular voting rises by 56% compared to 15-29 years old respondents;
+1.2) The chances **55+ years-old** respondents regular voting rises by 111% compared to 15-29 years old respondents.
+
+2) The chances of respondents with **tertiary education** regular voting rises by 51% compared to respondents with secondary education or less.
+
+3) The chances of **religious** respondents regular voting rises by 121% compared to not religious respondents.
+
+4) The chances of regular voting increase by 12% every time level of **life satisfaction** becomes higher.
+
+5) The chances of regular voting decrease by 11% every time level of **income** becomes higher.
+
+6) The chances of regular voting of respondents who are **interested in politics** rises by 60% compared to those who are not interested in it.
+
+7) The chances of regular voting decrease by 7% every time level of **government responsibility** becomes higher.
+
+8) The chances of regular voting of respondents who are **confident in government** rises by 45% compared to those who are not confident in it.
+
+9) The chances of regular voting of respondents who have an experience in **signing petition** rises by 105% compared to those who haven't it.
+
+10) The chances of regular voting of respondents who have already **joined boycott** or might do it decrease by 48% compared to those who would never do it.
+
+```{r}
+model_final <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_resp + government_conf + petition +
+                 boycott, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_final)
+exp(model_final$coefficients)
+```
+
+```{r}
+plot_model(model_final, ci_method = "wald", show.values = TRUE,
+           title = "Chances of regular participation in elections")
+```
+
+# Marginal effects - effect plots
+
+1) Respondents in age of 15 -29 years old have the lowest expected probability of regular voting (0.29 vs 0.39 and 0.46). So, the difference between this group and group 55+ with the highest predicted probability of regular voting (0.46) is 17%.
+
+```{r}
+eff<-allEffects(model_final)
+eff
+plot(eff, 'age', ylab="Predicted prob(voting)", xlab = "Age", 
+     main = "Age effect plot")
+```
+
+2) Respondents with tertiary education have higher probability of regular voting than respondents with secondary education and lower (0.42 vs 0.32). So, the difference between these groups is 10%.
+
+```{r}
+plot(eff, 'education', ylab="Predicted prob(voting)", xlab = "Education", 
+     main = "Education effect plot")
+```
+
+3) Religious respondents have higher probability of regular voting than non-religious respondents (0.31 vs 0.50). So, the difference between these groups is 19%.
+
+```{r}
+plot(eff, 'religion', ylab="Predicted prob(voting)", xlab = "Religion", 
+     main = "Religion effect plot")
+```
+
+4) With the increasing of the level of life satisfaction predicted probability of regular voting is increasing: from 0.25 for the lowest level of life satisfaction (1), then 0.37 for an average level of life satisfaction (6), and 0.48 for the highest level of life satisfaction. So, the percentage difference between the lowest life satisfaction level and the highest one is 23%.
+
+```{r}
+plot(eff, 'life_sat', ylab="Predicted prob(voting)", xlab = "Life satisfaction", 
+     main = "Life satisfaction effect plot")
+```
+
+5) With the increasing of the level of income predicted probability of regular voting is decreasing: from 0.51 for the lowest level of income (1), then 0.36 for an average level of income (6), and 0.26 for the highest level of income. So, the percentage difference between the lowest income level and the highest one is 25%.
+
+```{r}
+plot(eff, 'income', ylab="Predicted prob(voting)", xlab = "Income", 
+     main = "Income effect plot")
+```
+
+6) Respondents who are interested in politics have higher probability of regular voting than those who are not interested in it (0.34 vs 0.45). So, the difference between these categories is 11%.
+
+```{r}
+plot(eff, 'pol_interest', ylab="Predicted prob(voting)", xlab = "Interest in politics", 
+     main = "Political interest effect plot")
+```
+
+7) With the increasing of the level of government responsibility probability of regular voting is decreasing: from 0.44 for the lowest level of government responsibility (1), then 0.36 for an average level of government responsibility (6), and 0.30 for the highest level of income. So, the percentage difference between the lowest government responsibility level and the highest one is 14%.
+
+```{r}
+plot(eff, 'government_resp', ylab="Predicted prob(voting)", xlab = "Government responsibility", 
+     main = "Government responsibility effect plot")
+```
+
+8) Respondents who are confident in government have higher probability of regular voting than those who are not confident in it (0.35 vs 0.43). So, the difference between these categories is 8%.
+
+```{r}
+plot(eff, 'government_conf', ylab="Predicted prob(voting)", xlab = "Confidence in government", 
+     main = "Confidence in government effect plot")
+```
+
+9) Respondents who have an experience in signing in petition have higher probability of regular voting than those who do not have it (0.47 vs 0.30). So, the difference between these categories is 17%.
+
+```{r}
+plot(eff, 'petition', ylab="Predicted prob(voting)", xlab = "Signing petitions", 
+     main = "Signing petitions effect plot")
+```
+
+10) Respondents who would never join boycotts have higher probability of regular voting than those who have joined or might join boycotts (0.49 vs 0.33). So, the difference between these categories is 16%.
+
+```{r}
+plot(eff, 'boycott', ylab="Predicted prob(voting)", xlab = "Joining boycotts", 
+     main = "Joining boycotts effect plot")
+```
+
+
+# 3.2. Model diagnostics
+**Provide model accuracy, specificity, sensitivity; AUC. Model correction if needed.**
+
+Chance of regular voting is 39,2%.
+
+- Precision: 0.66 (how good our model is when the prediction is positive).
+- Recall: 0.46 (how good our model is at correctly predicting positive classes) - not a very good value for our model (in this case performs no better than a model that performs random guessing).
+
+- Accuracy: ratio of correct predictions to total predictions - is 0.70.
+- Specificity: ratio of true negatives to total negatives in the data - is 0.71
+- Sensitivity: ratio of true positives to total (actual) positives in the data - is 0.66 .
+
+Our model predict better negative cases (0.71) than positive ones (0,66).
+
+ROC curve: is a graph that displays the sensitivity and specificity of a logistic regression model (the more the ROC curve spans the upper left corner of the graph, the better the model categorizes the data). 
+
+- AUC (area under the curve): how much the model is capable of distinguishing between classes; higher the AUC, better the model is at predicting class True (1) as True and False (0) as False.
+Our model has AUC of 0.66. In general, the predictive ability of the model is close to be acceptable.
+
+```{r}
+prop.table(table(Mongolia_WVS_EVS$vote)) 
+
+Mongolia_WVS_EVS$yhat <- predict.glm(model_final, type = 'response')
+
+Mongolia_WVS_EVS$yhat1<-ifelse(Mongolia_WVS_EVS$yhat<0.5, 0, 1)
+table(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$yhat1) 
+
+library(ROSE)
+accuracy.meas(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$yhat, threshold = 0.5)
+
+library(caret)
+confusionMatrix(reference = Mongolia_WVS_EVS$vote, as.factor(Mongolia_WVS_EVS$yhat1), 
+                 positive = "1")
+
+library(pROC)
+f1 = roc(Mongolia_WVS_EVS$vote, Mongolia_WVS_EVS$yhat1) 
+plot(f1, col="red")
+auc(f1)
+```
+
+
+# 3.3. Interaction effect. 
+**Add at least one interaction term into your model. Draw a plot. Interpret your results.** 
+
+Since we have already met with multicolleniality before, we will create an interaction effect with those variables: government_conf and parliament_conf.
+
+In this model interaction is statistically significant since the p-value is less than 0.05. AIC of this model is the lowest - 1364.9. 
+
+**Coefficients**
+Сonfidence in the government and in parliament have a positive direction - it increase the chances of regular voting compared to category "not confident" in government (0.94).
+
+**Odds ratios**
+We observe that the odds of regular voting are increased by a factor of 2.56 for respondents who are confident in government and parliament as well, it means the chances of these respondents regular voting decries by 156% compared to respondents who are not confident in government, but are confident in parliaments.
+
+```{r}
+Mongolia_WVS_EVS <- within(Mongolia_WVS_EVS, 
+                           parliament_conf <- relevel(parliament_conf, 
+                                                      ref = "Not confident"))
+
+model_int <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_resp + government_conf*parliament_conf +
+                  petition + boycott,
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_int)
+exp(model_int$coefficients)
+```
+
+We are interested in part where respondent is confident in parliament. So if they are not confident in government, their predicted probability of regular voting is 0.15, but if they are confident in both institutions, probability of regular voting increase to 0.41. So, the difference is 26%.
+
+```{r}
+eff_2<-allEffects(model_int)
+eff_2
+plot(eff_2, 'government_conf:parliament_conf', 
+     ylab="Predicted prob(voting)", 
+     xlab = "Confidence in government",
+     main = "Interaction effect plot: confidence in government and parliament")
+```
+
+## 4. Decision tree. 
+
+**For the same variables you tested for your model, run a decision tree of the preferred type. Describe the results. Are they different from what you observed in the regression? (2 points)**
+
+Regular participation in voting depends primarily on whether a person is religious or not and then it depends on attitudes towards government responsibility.
+
+Also age is important factor, which appears in several branches. Moreover, income, level of life satisfaction, confidence in government and experience in signing petition are determine the regularity of participation in elections at the local level.
+
+For instance, those respondents who are religious, who think that level of government responsibility is equal or higher than 2 and have en experience in signing a petition are likely to participate in elections regularly.
+
+Generally, the results are close to results which were observed in the regression: religion, age, participation in boycotts and in signing petition have fairly high percentages of influence on the chances of regular voting. But in decision tree government responsibility has an important role as well.
+
+```{r}
+tree <- rpart(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_resp + government_conf + petition +
+                 boycott, 
+              data = Mongolia_WVS_EVS, control=rpart.control(cp=.0001))
+best <- 0.007
+pruned_tree <- prune(tree, cp=best)
+prp(pruned_tree)
+```
+
+## 5. Run factor analysis for the variables on Confidence (E069_).
+
+**Describe the factor structure you got: how many factors did you get? What do they mean? Add at least one of those factors in your final model, interpret its effect.**
+
+Let's select variables for factor analysis, rename them and change the class into numeric.
+
+```{r}
+library(polycor)
+library(psych)
+
+Mongolia_factors <- Mongolia_WVS_EVS[c("E069_01", "E069_02", "E069_04",
+                              "E069_05", "E069_06", "E069_07", "E069_08", 
+                              "E069_11", "E069_12", "E069_13","E069_14", "E069_17")]
+
+lookup <- c(c_churches = "E069_01", c_armed_forces = "E069_02", c_press = "E069_04", 
+            c_labour_unions = "E069_05", c_police = "E069_06", 
+            c_parliament ="E069_07", c_civil_services = "E069_08", 
+            c_government = "E069_11", c_political_parties = "E069_12",
+            c_major_companies = "E069_13", c_env_movemnt = "E069_14", 
+            c_justice_system = "E069_17")
+
+Mongolia_factors <- rename(Mongolia_factors, all_of(lookup))
+names(Mongolia_factors)
+
+class(Mongolia_factors$c_churches)
+Mongolia_factors_2 <-as.data.frame(lapply(Mongolia_factors, as.factor))
+class(Mongolia_factors_2$c_churches)
+```
+
+Based on correlation matrix we can see that some variables positively correlate with each other (for instance, police and justice system, or parliament and political parties). And some variables are not correlate with each other (for example, churches and parliament, environmental protection movement and government). 
+
+```{r}
+library(polycor)
+corMongolia <- hetcor(Mongolia_factors_2)
+corrplot::corrplot(corMongolia$correlations)
+```
+
+In parallel analysis, we can see that 4 factors in the “Factor Analysis” lie above the corresponding simulated data line and 2 components in the “Principal Components” parallel analysis lie above the corresponding simulated data line. So, we will have two factors/components.
+
+```{r}
+nrow(Mongolia_factors_2)
+fa.parallel(corMongolia$correlations, 1134)
+```
+So, we got 2 factors: the first one (MR1) consists mostly of confidence in political institutions and the second one includes mostly confidence in civil_society_institutions.
+
+```{r}
+Mongolia_factors_2 <-as.data.frame(lapply(Mongolia_factors, as.numeric))
+fa(Mongolia_factors_2, 2, cor="mixed") 
+fa.diagram(fa(Mongolia_factors_2, 2, cor="mixed"))
+
+c_political_institutions <- Mongolia_factors_2[c('c_government',
+                                                 'c_parliament', 
+                                                 'c_political_parties', 
+                                                 'c_civil_services',
+                                                 'c_justice_system')]
+
+c_civil_society_institutions <- Mongolia_factors_2[c('c_press', 
+                                                     'c_armed_forces', 
+                                                     'c_labour_unions',
+                                                     'c_churches', 
+                                                     'c_police', 
+                                                     'c_env_movemnt', 
+                                                     'c_major_companies')]
+```
+
+Let's save them in our initial dataset and rename.
+
+```{r}
+fa2 <-fa(Mongolia_factors_2, 2, cor="mixed", scores=T)
+fa2<- fa2$scores
+Mongolia_WVS_EVS<- cbind(Mongolia_WVS_EVS, fa2)
+Mongolia_WVS_EVS <- rename(Mongolia_WVS_EVS, c_political_institutions = MR1)
+Mongolia_WVS_EVS <- rename(Mongolia_WVS_EVS, c_civil_society_institutions = MR2)
+```
+
+# Model with factor 1
+
+In this model variable "confidence in civil society institutions" is statistically significant since the p-value is less than 0.05. AIC of this model is 1354.5. 
+
+**Coefficients**
+Confidence in civil society institutions has a positive direction - it increase the chances of regular voting (0.41).
+
+**Odds ratios**
+We observe that the odds of regular voting are multiplied by a factor of 1.50 for every point increase of confidence in civil society institutions. It means the chances of regular voting increase by 50% every time confidence in civil society institutions becomes higher.
+
+```{r}
+model_final_factor1 <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_conf + petition +
+                 boycott + c_civil_society_institutions, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_final_factor1)
+exp(model_final_factor1$coefficients)
+```
+
+# Model with factor 2
+
+In this model variable "confidence in political institutions " is not statistically significant since the p-value is more than 0.05.
+
+```{r}
+model_final_factor2 <-glm(vote ~ age + education + religion + life_sat + income +
+                pol_interest + government_conf + petition +
+                 boycott + c_political_institutions, 
+              data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_final_factor2)
+```
+
+# Model with factors
+
+But it becomes significant if we add previous factor, so it correlates with confidence in civil society institutions and gives multicollinearity.
+
+```{r}
+model_final_factors <-glm(vote ~ age + education + religion + life_sat + income +
+                          pol_interest + petition + boycott +
+                          c_political_institutions + c_civil_society_institutions, 
+                          data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_final_factors)
+```
+
+At the same time, the first factor does not give multicolleniarity with other variables and is significant in itself.
+
+```{r}
+model_final_factor_check <-glm(vote ~ c_civil_society_institutions, 
+                          data = Mongolia_WVS_EVS, family = "binomial")
+summary(model_final_factor_check)
+```
+
+# V. Meaningful interpretation: what do your results mean?
+
+The results confirm many of the hypotheses outlined at the beginning that following factors are likely to **increase** the chances of regular participation in elections on local level:
+
+1) Middle and older age compared to younger age 
+2) Having a tertiary education compared to secondary education and below
+3) Being a religious person 
+4) Political interest
+5) Level of life satisfaction
+6) Being confident in government
+7) Having experience in signing petition
+8) Confidence in civil society institutions
+
+While following factors are likely to **decrease** the chances of regular participation in elections on local level:
+
+1) Level of income
+2) Attitudes towards level of government responsibility
+3) Participation in boycotts
+
+At the same time, the following factors **do not have a significant** impact on the regularity of voting at the local level:
+
+1) Gender is likely not to affect the chances of regular participation in elections as well as 
+2) Marital status
+3) Health status
+4) Political importance
+5) Confidence in parliament
+6) Joining unofficial strikes
+7) Attending peaceful demonstrations
+
+# VI. Conclusion
+
+Regular participation or non-participation in elections depends on a variety of factors, both socio-demographic, and political and economic nature. If the municipal authorities were faced with the task of increasing the regularity of citizens' participation in elections, it would be possible to build strategies for interacting with the population and adjust personal work based on these results.
+
+Of course, it is not ethical to interact with a number of factors, for example, with a religious factor or education: you cannot force citizens to become believers or receive higher education. But the increase in political culture and political interest, the work on the efficiency of the authorities in their functions, which can help increase citizens' confidence in government and civil society, the improvement life quality of citizens - all this could allow to form the most dense dialogue with the population and to take into account the opinion as many residents as possible by their regular participation in elections.
+
+
